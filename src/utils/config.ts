@@ -3,7 +3,7 @@
  */
 
 /** Default server URL (configurable via NR_SERVER env or --server flag) */
-export const DEFAULT_SERVER = process.env.NR_SERVER || "https://nullroom.io";
+export const DEFAULT_SERVER = process.env.NR_SERVER || "https://www.nullroom.io";
 
 /** WebSocket path for ActionCable */
 export const CABLE_PATH = "/cable";

@@ -9,6 +9,7 @@
 
 import { WORDLIST } from "../utils/wordlist";
 import { PBKDF2_SALT, PBKDF2_ITERATIONS } from "../utils/config";
+import { getAuthHeaders } from "../utils/session";
 
 const SALT = new TextEncoder().encode(PBKDF2_SALT);
 
@@ -117,25 +118,33 @@ export async function createHandshake(
 
 /**
  * Publish a handshake to the server.
+ * Route: POST /handshakes/:identifier
  */
 export async function publishHandshake(
   serverUrl: string,
   identifier: string,
   encryptedBlob: string
 ): Promise<void> {
-  const res = await fetch(`${serverUrl}/handshakes`, {
+  const authHeaders = await getAuthHeaders(serverUrl);
+  const res = await fetch(`${serverUrl}/handshakes/${identifier}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json" },
-    body: JSON.stringify({ identifier, encrypted_url: encryptedBlob }),
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify({ blob: encryptedBlob }),
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to publish handshake: ${res.status} ${res.statusText}`);
+    const body = await res.text();
+    throw new Error(`Failed to publish handshake: ${res.status} ${res.statusText} ${body}`);
   }
 }
 
 /**
  * Look up a handshake from the server (one-time read, deleted after).
+ * Route: GET /handshakes/:identifier
  */
 export async function lookupHandshake(
   serverUrl: string,
@@ -152,6 +161,6 @@ export async function lookupHandshake(
     throw new Error(`Failed to lookup handshake: ${res.status} ${res.statusText}`);
   }
 
-  const data = (await res.json()) as { encrypted_url: string };
-  return data.encrypted_url;
+  const data = (await res.json()) as { blob: string };
+  return data.blob;
 }
