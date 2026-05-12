@@ -3,13 +3,10 @@
  */
 
 import { createRoom } from "../core/room";
-import { FileTransferSender } from "../core/file-transfer";
-import { encryptBuffer } from "../core/encryption";
 import { DEFAULT_SERVER, FILE_SIZE_LIMIT } from "../utils/config";
 import {
   showRoomHeader,
   outputJson,
-  showProgress,
   log,
   logInfo,
   logSuccess,
@@ -91,34 +88,7 @@ export async function sendCommand(filePath: string, options: SendOptions): Promi
     // Wait for peer to connect
     await session.waitForConnection();
 
-    // Send the file
-    const sender = new FileTransferSender(
-      {
-        sendFile: (data) => {
-          // We need to access the peer's sendFile directly
-          // The session exposes sendFile for this purpose
-        },
-        send: (data) => {},
-        getFileBufferedAmount: () => 0,
-      },
-      async (buf) => encryptBuffer(buf, session.connectionInfo as any),
-      (name, percent) => {
-        if (json) {
-          outputJson({ type: "progress", name, percent });
-        } else {
-          showProgress(name, percent);
-        }
-      },
-      (errMsg) => {
-        if (json) {
-          outputJson({ type: "error", error: errMsg });
-        } else {
-          logError(errMsg);
-        }
-      }
-    );
-
-    // Use the session's sendFile method which handles encryption internally
+    // Send the file (encryption handled internally by the session)
     await session.sendFile(resolvedPath);
 
     if (json) {

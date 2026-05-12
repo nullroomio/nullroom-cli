@@ -4,7 +4,6 @@
 
 import { joinRoom } from "../core/room";
 import { FileTransferReceiver } from "../core/file-transfer";
-import { decryptBuffer } from "../core/encryption";
 import { DEFAULT_SERVER } from "../utils/config";
 import {
   outputJson,
@@ -25,7 +24,6 @@ export async function receiveCommand(code: string, options: ReceiveOptions): Pro
 
   try {
     let fileReceived = false;
-    let encryptionKey: CryptoKey;
 
     const session = await joinRoom(code, server, {
       onState: (state: RoomState, detail?: string) => {
@@ -70,20 +68,10 @@ export async function receiveCommand(code: string, options: ReceiveOptions): Pro
     // Wait for connection
     await session.waitForConnection();
 
-    // We need to get the hybrid key from the session for decryption
-    // The session handles decryption internally through its message routing,
-    // but for file chunks we need the raw decryptBuffer function.
-    // The file-transfer module expects raw encrypted chunks from the file data channel.
-
-    // Set up file receiver - the hybrid key is managed internally by the room session
-    // File data comes in already routed to us from the peer's file channel
+    // Set up file receiver using the session's decrypt method
     const fileCompletePromise = new Promise<FileTransferComplete>((resolveFile, rejectFile) => {
       const receiver = new FileTransferReceiver(
-        async (buf) => {
-          // decryptBuffer using the session's internal key
-          // The session routes raw encrypted file chunks to us
-          return decryptBuffer(buf, (session as any)._hybridKey || (await getSessionKey(session)));
-        },
+        (buf) => session.decryptFileChunk(buf),
         (name, percent) => {
           if (json) {
             outputJson({ type: "progress", name, percent });
@@ -141,15 +129,4 @@ export async function receiveCommand(code: string, options: ReceiveOptions): Pro
     }
     process.exit(1);
   }
-}
-
-/**
- * Helper to get the session's current encryption key.
- * This is a workaround since the session doesn't expose the key directly.
- */
-async function getSessionKey(session: any): Promise<CryptoKey> {
-  // The key is managed internally by the room module.
-  // For the receive command, decryption happens through the session's
-  // internal routing. This function exists as a fallback.
-  throw new Error("Session key not accessible - file decryption should be handled by the session");
 }
