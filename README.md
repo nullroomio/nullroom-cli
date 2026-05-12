@@ -1,10 +1,16 @@
 # nullroom-cli
 
+[![Test](https://github.com/nullroomio/nullroom-cli/actions/workflows/test.yml/badge.svg)](https://github.com/nullroomio/nullroom-cli/actions/workflows/test.yml)
+
 Post-quantum encrypted P2P communication from the terminal. CLI client for [nullroom.io](https://nullroom.io).
 
 Fully interoperable with the web app — a CLI user can connect to a browser user and vice versa.
 
+> **Note:** This is an early version, built largely with the help of AI tools. Expect rough edges, bugs, and missing features. Bug reports and patience are equally appreciated.
+
 ## Features
+
+Same cryptographic protocol as the [nullroom.io web app](https://github.com/nullroomio/nullroom):
 
 - **End-to-end encrypted** — AES-GCM-256 + ML-KEM-768 (post-quantum) hybrid key
 - **True P2P** — WebRTC DataChannels, server only relays signaling
@@ -33,12 +39,5 @@ bun run build    # produces ./nr binary
 ```bash
 bun run src/index.ts create
 bun run typecheck
+bun test
 ```
-
-## Tech
-
-- **Runtime:** Bun
-- **WebRTC:** werift (pure TypeScript, no native deps)
-- **PQC:** mlkem (ML-KEM-768 / FIPS 203)
-- **Signaling:** ActionCable (WebSocket) to nullroom.io server
-- **CLI:** Commander + @clack/prompts
