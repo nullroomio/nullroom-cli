@@ -1,0 +1,31 @@
+{
+  "name": "nullroom-cli",
+  "version": "0.1.0",
+  "description": "Post-quantum encrypted P2P communication from the terminal",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "nr": "src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build ./src/index.ts --compile --outfile nr",
+    "build:linux": "bun build ./src/index.ts --compile --target=bun-linux-x64 --outfile nr-linux",
+    "build:mac": "bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile nr-mac",
+    "build:windows": "bun build ./src/index.ts --compile --target=bun-windows-x64 --outfile nr.exe",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.4.0",
+    "commander": "^14.0.3",
+    "mlkem": "^2.7.0",
+    "werift": "^0.23.0"
+  }
+}
