@@ -15,6 +15,14 @@ let cachedSession: ServerSession | null = null;
 let cachedServer: string | null = null;
 
 /**
+ * Reset the cached session (for testing).
+ */
+export function resetSessionCache(): void {
+  cachedSession = null;
+  cachedServer = null;
+}
+
+/**
  * Fetch a CSRF token and session cookie from the server.
  * Caches the result for the lifetime of the process (per server).
  */
