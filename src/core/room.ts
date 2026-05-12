@@ -56,6 +56,8 @@ export interface RoomSession {
   onFileData: (handler: (data: ArrayBuffer) => void) => void;
   /** Register a handler for control messages (file-start/end) */
   onControlMessage: (handler: (msg: string) => boolean) => void;
+  /** Decrypt a file chunk using the session's hybrid key */
+  decryptFileChunk: (data: ArrayBuffer) => Promise<ArrayBuffer>;
   /** Destroy the session */
   destroy: () => void;
   /** Wait for peer to connect (resolves when PQ upgrade completes) */
@@ -207,6 +209,7 @@ async function setupSession(
   onMessage: (handler: (msg: string) => void) => void;
   onFileData: (handler: (data: ArrayBuffer) => void) => void;
   onControlMessage: (handler: (msg: string) => boolean) => void;
+  decryptFileChunk: (data: ArrayBuffer) => Promise<ArrayBuffer>;
   destroy: () => void;
   waitForConnection: () => Promise<void>;
 }> {
@@ -224,6 +227,11 @@ async function setupSession(
     connectionResolve = resolve;
     connectionReject = reject;
   });
+
+  // Overall connection timeout (60s for peer to join + WebRTC + PQ upgrade)
+  const connectionTimeout = setTimeout(() => {
+    connectionReject?.(new Error("Connection timed out waiting for peer"));
+  }, 60_000);
 
   // 1. Connect signaling
   onState?.("waiting");
@@ -267,20 +275,22 @@ async function setupSession(
     try {
       const result = await performPQUpgrade(
         (data) => peer.send(data),
+        (handler) => { pqMessageHandler = handler; },
         encryptionKey,
         isInitiator,
         onProgress
       );
 
       hybridKey = result.hybridKey;
-      pqMessageHandler = result.messageHandler;
 
       // Mark connection as ready
+      clearTimeout(connectionTimeout);
       peer.confirmReady();
       onState?.("connected");
       onProgress?.("Post-quantum encryption active");
       connectionResolve?.();
     } catch (err) {
+      clearTimeout(connectionTimeout);
       onError?.(err as Error);
       connectionReject?.(err as Error);
     }
@@ -379,6 +389,10 @@ async function setupSession(
     controlMessageHandlers.push(handler);
   }
 
+  async function decryptFileChunk(data: ArrayBuffer): Promise<ArrayBuffer> {
+    return decryptBuffer(data, hybridKey);
+  }
+
   function destroy(): void {
     peer.destroy();
     signaling.disconnect();
@@ -395,6 +409,7 @@ async function setupSession(
     onMessage,
     onFileData,
     onControlMessage,
+    decryptFileChunk,
     destroy,
     waitForConnection,
   };

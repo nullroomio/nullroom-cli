@@ -94,13 +94,16 @@ export interface PQPeer {
  * Perform the post-quantum key upgrade.
  *
  * @param sendFn Function to send a string over the data channel
+ * @param registerHandler Callback to register the PQ message handler immediately
+ *                        (needed because messages arrive before the Promise resolves)
  * @param classicalKey The AES-GCM key from the URL fragment
  * @param isInitiator Whether this peer is the connection initiator
  * @param onProgress Optional progress callback
- * @returns The hybrid AES-GCM key (K_H)
+ * @returns The hybrid AES-GCM key (K_H) and the message handler for post-upgrade filtering
  */
 export async function performPQUpgrade(
   sendFn: (data: string) => void,
+  registerHandler: (handler: (msg: string) => Promise<boolean>) => void,
   classicalKey: CryptoKey,
   isInitiator: boolean,
   onProgress?: (msg: string) => void
@@ -131,6 +134,9 @@ export async function performPQUpgrade(
         return false;
       }
     };
+
+    // Register handler immediately so incoming messages can be routed
+    registerHandler(messageHandler);
 
     async function processMessage(msg: PQMessage): Promise<void> {
       if (isInitiator) {
