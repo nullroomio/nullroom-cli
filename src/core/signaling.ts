@@ -5,6 +5,9 @@
  * The web app uses @rails/actioncable (browser-specific); this is a
  * standalone implementation.
  *
+ * Uses the 'ws' library instead of Bun's native WebSocket for compatibility
+ * with Cloudflare-proxied servers (Bun's native WebSocket fails upgrade behind CF).
+ *
  * Protocol:
  *   Connect → ws(s)://server/cable
  *   ← {"type":"welcome"}
@@ -14,6 +17,7 @@
  *   ← {"message":{...},"identifier":"..."}
  */
 
+import WebSocket from "ws";
 import { CABLE_PATH } from "../utils/config";
 import type {
   ChannelInitData,
@@ -50,14 +54,18 @@ export class SignalingClient {
         reject(new Error("WebSocket connection timed out"));
       }, 10_000);
 
-      this.ws = new WebSocket(this.serverUrl);
+      this.ws = new WebSocket(this.serverUrl, {
+        headers: {
+          Origin: this.serverUrl.replace("wss://", "https://").replace("ws://", "http://").replace(CABLE_PATH, ""),
+        },
+      });
 
-      this.ws.onopen = () => {
+      this.ws.on("open", () => {
         // Wait for welcome message
-      };
+      });
 
-      this.ws.onmessage = (event: MessageEvent) => {
-        const data = JSON.parse(String(event.data));
+      this.ws.on("message", (raw: WebSocket.RawData) => {
+        const data = JSON.parse(raw.toString());
 
         if (data.type === "welcome" && !this.connected) {
           this.connected = true;
@@ -85,21 +93,21 @@ export class SignalingClient {
         if (data.message && data.identifier === this.identifier) {
           this._dispatch(data.message as ChannelMessage);
         }
-      };
+      });
 
-      this.ws.onerror = (event) => {
+      this.ws.on("error", (err: Error) => {
         clearTimeout(timeout);
-        reject(new Error(`WebSocket error: ${event}`));
-      };
+        reject(new Error(`WebSocket error: ${err.message}`));
+      });
 
-      this.ws.onclose = (event: CloseEvent) => {
+      this.ws.on("close", (code: number, reason: Buffer) => {
         this.connected = false;
         this.subscribed = false;
         if (!this.connected) {
           clearTimeout(timeout);
-          reject(new Error(`WebSocket closed: ${event.code} ${event.reason}`));
+          reject(new Error(`WebSocket closed: ${code} ${reason.toString()}`));
         }
-      };
+      });
     });
   }
 
