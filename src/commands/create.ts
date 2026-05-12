@@ -7,6 +7,9 @@ import { DEFAULT_SERVER } from "../utils/config";
 import { registerCleanup } from "../index";
 import {
   showRoomHeader,
+  showBanner,
+  showSeparator,
+  printChatMessage,
   outputJson,
   log,
   logInfo,
@@ -26,6 +29,7 @@ export async function createCommand(options: CreateOptions): Promise<void> {
         if (json) return;
         switch (state) {
           case "created":
+            showBanner();
             logInfo("Room created");
             break;
           case "waiting":
@@ -36,10 +40,10 @@ export async function createCommand(options: CreateOptions): Promise<void> {
             break;
           case "connected":
             logSuccess("Peer connected. Post-quantum encryption active.");
-            log("Type messages below (Ctrl+C to exit):\n");
+            showSeparator("connected");
             break;
           case "closed":
-            log(`\n  Session ended${detail ? `: ${detail}` : ""}`);
+            showSeparator("session ended");
             process.exit(0);
             break;
         }
@@ -76,17 +80,13 @@ export async function createCommand(options: CreateOptions): Promise<void> {
     // Wait for peer to connect
     await session.waitForConnection();
 
-    // Set up message display
-    session.onMessage((msg: string) => {
-      if (json) {
-        outputJson({ type: "message", data: msg });
-      } else {
-        process.stdout.write(`\x1b[34m< ${msg}\x1b[0m\n`);
-      }
-    });
-
     // Interactive chat mode
     if (json) {
+      // Set up message display for JSON mode
+      session.onMessage((msg: string) => {
+        outputJson({ type: "message", data: msg });
+      });
+
       // In JSON mode, read JSON lines from stdin
       const rl = readline.createInterface({ input: process.stdin });
       rl.on("line", async (line) => {
@@ -105,18 +105,26 @@ export async function createCommand(options: CreateOptions): Promise<void> {
         process.exit(0);
       });
     } else {
-      // Interactive mode: read lines from stdin
+      // Interactive mode: set up readline
       const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout,
         prompt: "> ",
       });
       rl.prompt();
+
+      // Display incoming messages, clearing/restoring prompt
+      session.onMessage((msg: string) => {
+        printChatMessage("peer", msg, rl);
+      });
+
       rl.on("line", async (line) => {
         if (line.trim()) {
           await session.sendMessage(line);
+          printChatMessage("you", line, rl);
+        } else {
+          rl.prompt();
         }
-        rl.prompt();
       });
       rl.on("close", () => {
         session.destroy();

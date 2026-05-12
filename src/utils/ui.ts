@@ -4,6 +4,63 @@
  */
 
 import * as p from "@clack/prompts";
+import type { Interface as ReadlineInterface } from "readline";
+
+// ANSI escape codes
+const RESET = "\x1b[0m";
+const BOLD = "\x1b[1m";
+const DIM = "\x1b[2m";
+const RED = "\x1b[31m";
+const GREEN = "\x1b[32m";
+const CYAN = "\x1b[36m";
+const WHITE = "\x1b[97m";
+
+/**
+ * Display the nullroom banner (null symbol + brand).
+ */
+export function showBanner(): void {
+  process.stderr.write(`\n  ${BOLD}${WHITE}\u2205${RESET} ${DIM}nullroom.io${RESET}\n\n`);
+}
+
+/**
+ * Display a session separator line with a label.
+ */
+export function showSeparator(label: string): void {
+  process.stderr.write(`  ${DIM}\u2500\u2500 ${label} \u2500\u2500${RESET}\n`);
+}
+
+/**
+ * Format a timestamp as HH:MM.
+ */
+function formatTime(): string {
+  const now = new Date();
+  const h = now.getHours().toString().padStart(2, "0");
+  const m = now.getMinutes().toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+/**
+ * Print a chat message to stderr with sender label and timestamp.
+ * Clears the current readline prompt, prints the message, then restores the prompt.
+ *
+ * @param sender "you" or "peer"
+ * @param message The message text
+ * @param rl Optional readline interface to clear/restore the prompt
+ */
+export function printChatMessage(sender: "you" | "peer", message: string, rl?: ReadlineInterface): void {
+  const time = formatTime();
+  const labelColor = sender === "you" ? GREEN : CYAN;
+  const line = `  ${BOLD}${labelColor}${sender}${RESET} ${DIM}${time}${RESET} ${message}\n`;
+
+  if (rl) {
+    // Clear the current prompt line, print message, restore prompt
+    process.stdout.write(`\r\x1b[K`);
+    process.stdout.write(line);
+    rl.prompt(true);
+  } else {
+    process.stdout.write(line);
+  }
+}
 
 /**
  * Display a room creation/join header with connection info.
@@ -64,19 +121,19 @@ export function log(msg: string): void {
  * Log an error to stderr.
  */
 export function logError(msg: string): void {
-  process.stderr.write(`  \x1b[31merror\x1b[0m ${msg}\n`);
+  process.stderr.write(`  ${RED}error${RESET} ${msg}\n`);
 }
 
 /**
  * Log a success message to stderr.
  */
 export function logSuccess(msg: string): void {
-  process.stderr.write(`  \x1b[32m✓\x1b[0m ${msg}\n`);
+  process.stderr.write(`  ${GREEN}\u2713${RESET} ${msg}\n`);
 }
 
 /**
  * Log an info/progress message to stderr.
  */
 export function logInfo(msg: string): void {
-  process.stderr.write(`  \x1b[36m●\x1b[0m ${msg}\n`);
+  process.stderr.write(`  ${CYAN}\u25CF${RESET} ${msg}\n`);
 }
