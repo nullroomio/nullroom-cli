@@ -1,7 +1,7 @@
 /**
  * AES-GCM-256 encryption module for nullroom-cli
+ * Ported from: nullroom/app/javascript/modules/encryption.js
  *
- * Direct port of app/javascript/modules/encryption.js
  * Uses Web Crypto API (supported in Bun)
  */
 

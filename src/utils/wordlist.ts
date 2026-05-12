@@ -1,4 +1,5 @@
 // BIP-39 English wordlist (2048 words)
+// Copied from: nullroom/app/javascript/utils/wordlist.js
 // Source: https://github.com/bitcoin/bips/blob/master/bip-0039/english.txt
 export const WORDLIST = [
   "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract",

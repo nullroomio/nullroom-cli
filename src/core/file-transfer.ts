@@ -1,12 +1,11 @@
 /**
  * P2P File Transfer module for nullroom-cli
+ * Ported from: nullroom/app/javascript/modules/file_transfer.js
  *
  * Handles chunked, per-chunk AES-GCM encrypted file send/receive
  * over a dedicated WebRTC DataChannel ("nullroom-files").
  *
  * Files never touch the server — zero-trace preserved.
- *
- * Ported from app/javascript/modules/file_transfer.js
  */
 
 import { CHUNK_SIZE, FILE_SIZE_LIMIT, MAX_BUFFER } from "../utils/config";

@@ -1,11 +1,10 @@
 /**
  * Zero-Knowledge Handshake Crypto Module for nullroom-cli
+ * Ported from: nullroom/app/javascript/modules/handshake_crypto.js
  *
  * Uses a 4-word BIP-39 phrase as both:
  * - A lookup identifier (SHA-256 hash of the phrase)
  * - An encryption key (PBKDF2-derived AES-GCM 256-bit key)
- *
- * Ported from app/javascript/modules/handshake_crypto.js
  */
 
 import { WORDLIST } from "../utils/wordlist";

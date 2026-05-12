@@ -1,5 +1,6 @@
 /**
  * Post-Quantum Upgrade Module for nullroom-cli
+ * Ported from: nullroom/app/javascript/modules/pq_upgrade.js
  *
  * Performs an ML-KEM-768 key exchange over the WebRTC data channel,
  * then fuses the quantum shared secret with the classical URL key via
@@ -11,8 +12,6 @@
  *   3. Initiator → Responder: {type: "pq-confirm", data: "<base64-hmac>"}
  *
  * Both sides switch to K_H only after mutual HMAC verification.
- *
- * Ported from app/javascript/modules/pq_upgrade.js
  */
 
 import { createMlKem768 } from "mlkem";
