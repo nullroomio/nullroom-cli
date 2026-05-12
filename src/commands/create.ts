@@ -4,6 +4,7 @@
 
 import { createRoom } from "../core/room";
 import { DEFAULT_SERVER } from "../utils/config";
+import { registerCleanup } from "../index";
 import {
   showRoomHeader,
   outputJson,
@@ -66,6 +67,11 @@ export async function createCommand(options: CreateOptions): Promise<void> {
     } else {
       showRoomHeader(session.phrase, session.connectionString);
     }
+
+    // Register cleanup for SIGINT
+    registerCleanup(() => {
+      session.destroy();
+    });
 
     // Wait for peer to connect
     await session.waitForConnection();

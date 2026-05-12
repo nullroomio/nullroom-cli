@@ -4,6 +4,7 @@
 
 import { joinRoom } from "../core/room";
 import { DEFAULT_SERVER } from "../utils/config";
+import { registerCleanup } from "../index";
 import {
   outputJson,
   log,
@@ -57,6 +58,11 @@ export async function joinCommand(code: string, options: JoinOptions): Promise<v
     if (json) {
       outputJson({ type: "joined", roomId: session.connectionInfo.roomId });
     }
+
+    // Register cleanup for SIGINT
+    registerCleanup(() => {
+      session.destroy();
+    });
 
     // Wait for connection
     await session.waitForConnection();

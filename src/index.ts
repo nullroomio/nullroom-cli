@@ -14,6 +14,29 @@ import { sendCommand } from "./commands/send";
 import { receiveCommand } from "./commands/receive";
 import { pipeCommand } from "./commands/pipe";
 
+// ── Global SIGINT handler for graceful shutdown ───────────────────────────────
+let cleanupFn: (() => void) | null = null;
+
+/** Register a cleanup function to be called on SIGINT */
+export function registerCleanup(fn: () => void): void {
+  cleanupFn = fn;
+}
+
+process.on("SIGINT", () => {
+  if (cleanupFn) {
+    cleanupFn();
+  }
+  // Give a brief moment for cleanup, then exit
+  setTimeout(() => process.exit(0), 200);
+});
+
+process.on("SIGTERM", () => {
+  if (cleanupFn) {
+    cleanupFn();
+  }
+  setTimeout(() => process.exit(0), 200);
+});
+
 const program = new Command();
 
 program
