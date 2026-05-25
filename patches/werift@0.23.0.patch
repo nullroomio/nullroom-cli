@@ -29,10 +29,10 @@ index f083bb7f06a9ee5ea17aab81c043e8da30a5c131..eae929a87487233034e3a987dd15f88d
      type: string;
      address: AddressInfo;
 diff --git a/lib/common/src/transport.js b/lib/common/src/transport.js
-index cd9c92cfc7e047f0bc8144335e8f18d01d789e07..5886cf8518e13c02ac33c6bdaf54fdd10b74fdfb 100644
+index cd9c92cfc7e047f0bc8144335e8f18d01d789e07..2dbd2af28551a40e67f3ad9dddc2e0b3833d7ab6 100644
 --- a/lib/common/src/transport.js
 +++ b/lib/common/src/transport.js
-@@ -33,10 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
+@@ -33,13 +33,21 @@ var __importStar = (this && this.__importStar) || (function () {
      };
  })();
  Object.defineProperty(exports, "__esModule", { value: true });
@@ -45,7 +45,34 @@ index cd9c92cfc7e047f0bc8144335e8f18d01d789e07..5886cf8518e13c02ac33c6bdaf54fdd1
  const log_1 = require("./log");
  const network_1 = require("./network");
  const log = (0, log_1.debug)("werift-ice:packages/ice/src/transport.ts");
-@@ -274,4 +275,121 @@ class TcpTransport {
++const RECOVERABLE_UDP_ERROR_CODES = new Set([
++    "ECONNREFUSED",
++    "EHOSTUNREACH",
++    "ENETUNREACH",
++    "EADDRNOTAVAIL",
++    "EPIPE",
++]);
+ class UdpTransport {
+     constructor(socketType, options = {}) {
+         Object.defineProperty(this, "socketType", {
+@@ -139,6 +147,16 @@ class UdpTransport {
+                 log("onData error", error);
+             }
+         });
++        this.socket.on("error", (error) => {
++            if (this.closed)
++                return;
++            const code = error?.code;
++            if (code && RECOVERABLE_UDP_ERROR_CODES.has(code)) {
++                log("udp socket recoverable error", code, error.message);
++                return;
++            }
++            log("udp socket error", error);
++        });
+     }
+     static async init(type, options = {}) {
+         const transport = new UdpTransport(type, options);
+@@ -274,4 +292,121 @@ class TcpTransport {
      }
  }
  exports.TcpTransport = TcpTransport;
@@ -168,7 +195,7 @@ index cd9c92cfc7e047f0bc8144335e8f18d01d789e07..5886cf8518e13c02ac33c6bdaf54fdd1
 +exports.TlsTransport = TlsTransport;
  //# sourceMappingURL=transport.js.map
 diff --git a/lib/ice/src/ice.js b/lib/ice/src/ice.js
-index 74cf126300a922fe1eafd2d2453d23b087f1277b..1b7276769fc8b8209dcf3251f492edf4d89b8caf 100644
+index 74cf126300a922fe1eafd2d2453d23b087f1277b..9dc5fbb584a0948d6d5ce284d9efcff423fa23a2 100644
 --- a/lib/ice/src/ice.js
 +++ b/lib/ice/src/ice.js
 @@ -684,6 +684,7 @@ class Connection {
@@ -222,7 +249,7 @@ index bcca4fc74a6bb78e23eb1c71e5a17c1950a31f9b..6b34721225b46a1577da3fdbe85a6466
      portRange?: [number, number];
      interfaceAddresses?: InterfaceAddresses;
 diff --git a/lib/ice/src/turn/protocol.js b/lib/ice/src/turn/protocol.js
-index 7386a7f49de0e658d9b79538f581a74467ce1fb2..2e779a879624f033fa35fa58ac52507fd877c86a 100644
+index 7386a7f49de0e658d9b79538f581a74467ce1fb2..ca8af48d71889b9260dd71b53299f3947c3f131f 100644
 --- a/lib/ice/src/turn/protocol.js
 +++ b/lib/ice/src/turn/protocol.js
 @@ -568,23 +568,26 @@ Object.defineProperty(TurnProtocol, "type", {
@@ -256,18 +283,42 @@ index 7386a7f49de0e658d9b79538f581a74467ce1fb2..2e779a879624f033fa35fa58ac52507f
          interfaceAddresses,
          transport: transportType,
 diff --git a/lib/index.mjs b/lib/index.mjs
-index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33677d0ce4 100644
+index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..31e214e1e73e075eea3bed9c7d520f0e96822544 100644
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
-@@ -631,6 +631,7 @@ import {
+@@ -631,7 +631,15 @@ import {
  } from "dgram";
  import * as net from "node:net";
  import { connect } from "node:net";
 +import { connect as connectTls } from "node:tls";
  var log = debug("werift-ice:packages/ice/src/transport.ts");
++var RECOVERABLE_UDP_ERROR_CODES = /* @__PURE__ */ new Set([
++  "ECONNREFUSED",
++  "EHOSTUNREACH",
++  "ENETUNREACH",
++  "EADDRNOTAVAIL",
++  "EPIPE"
++]);
  var UdpTransport = class _UdpTransport {
    constructor(socketType, options = {}) {
-@@ -779,6 +780,80 @@ var TcpTransport = class _TcpTransport {
+     this.socketType = socketType;
+@@ -648,6 +656,15 @@ var UdpTransport = class _UdpTransport {
+         log("onData error", error);
+       }
+     });
++    this.socket.on("error", (error) => {
++      if (this.closed) return;
++      const code = error?.code;
++      if (code && RECOVERABLE_UDP_ERROR_CODES.has(code)) {
++        log("udp socket recoverable error", code, error.message);
++        return;
++      }
++      log("udp socket error", error);
++    });
+   }
+   type = "udp";
+   socket;
+@@ -779,6 +796,80 @@ var TcpTransport = class _TcpTransport {
      this.client.destroy();
    };
  };
@@ -348,7 +399,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33
  
  // ../dtls/src/context/cipher.ts
  import { createSign, randomBytes as randomBytes2, webcrypto } from "crypto";
-@@ -7490,13 +7565,14 @@ var TurnProtocol = class _TurnProtocol {
+@@ -7490,13 +7581,14 @@ var TurnProtocol = class _TurnProtocol {
  };
  async function createTurnClient({ address, username, password }, {
    lifetime,
@@ -364,7 +415,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33
    const turn = new TurnProtocol(
      address,
      username,
-@@ -7513,6 +7589,7 @@ async function createStunOverTurnClient({
+@@ -7513,6 +7605,7 @@ async function createStunOverTurnClient({
    password
  }, {
    lifetime,
@@ -372,7 +423,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33
    portRange,
    interfaceAddresses,
    transport: transportType
-@@ -7525,6 +7602,7 @@ async function createStunOverTurnClient({
+@@ -7525,6 +7618,7 @@ async function createStunOverTurnClient({
      },
      {
        lifetime,
@@ -380,7 +431,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33
        portRange,
        interfaceAddresses,
        transport: transportType
-@@ -8171,7 +8249,8 @@ var Connection = class {
+@@ -8171,7 +8265,8 @@ var Connection = class {
            {
              portRange: this.options.portRange,
              interfaceAddresses: this.options.interfaceAddresses,
@@ -390,7 +441,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33
            }
          ).catch(async (e) => {
            if (this.options.turnTransport !== "tcp") {
-@@ -8184,7 +8263,8 @@ var Connection = class {
+@@ -8184,7 +8279,8 @@ var Connection = class {
                {
                  portRange: this.options.portRange,
                  interfaceAddresses: this.options.interfaceAddresses,
@@ -400,7 +451,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33
                }
              );
            } else {
-@@ -9390,23 +9470,59 @@ var compactNtp = (ntp) => {
+@@ -9390,23 +9486,59 @@ var compactNtp = (ntp) => {
    return bufferWriter([2, 2], [sec, msec]).readUInt32BE();
  };
  function parseIceServers(iceServers) {
@@ -473,7 +524,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33
    };
    log24("iceOptions", options);
    return options;
-@@ -14874,8 +14990,9 @@ var SecureTransportManager = class {
+@@ -14874,8 +15006,9 @@ var SecureTransportManager = class {
      const existing = this.iceTransports.find(
        (transport) => transport.state !== "closed"
      );
@@ -484,7 +535,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33
        forceTurn: this.config.iceTransportPolicy === "relay",
        portRange: this.config.icePortRange,
        interfaceAddresses: this.config.iceInterfaceAddresses,
-@@ -14885,7 +15002,8 @@ var SecureTransportManager = class {
+@@ -14885,7 +15018,8 @@ var SecureTransportManager = class {
        localPasswordPrefix: this.config.icePasswordPrefix,
        useIpv4: this.config.iceUseIpv4,
        useIpv6: this.config.iceUseIpv6,
@@ -495,7 +546,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33
      });
      if (existing) {
 diff --git a/lib/webrtc/src/secureTransportManager.js b/lib/webrtc/src/secureTransportManager.js
-index bc238f141664c62db9349561ed40563fc2e1db13..eec683e2ce422dd400a730b04695524f08ea90c2 100644
+index bc238f141664c62db9349561ed40563fc2e1db13..58a22d6262cf003bf013408c424c686ab8308829 100644
 --- a/lib/webrtc/src/secureTransportManager.js
 +++ b/lib/webrtc/src/secureTransportManager.js
 @@ -105,8 +105,9 @@ class SecureTransportManager {
@@ -533,7 +584,7 @@ index bcf13c879740252a3ce8aeac2d419b7c3a805607..c02c9bed8e9091a9d022ee03327066c3
  /**
   *
 diff --git a/lib/webrtc/src/utils.js b/lib/webrtc/src/utils.js
-index 038d05f9e52dd51872cf360cde5e9a33f203c2e0..93e41fc5a77226afcb15b80ce7fbe482637b22ef 100644
+index 038d05f9e52dd51872cf360cde5e9a33f203c2e0..da88891aba59f74f0e036d6fdb39ed1afd43559c 100644
 --- a/lib/webrtc/src/utils.js
 +++ b/lib/webrtc/src/utils.js
 @@ -88,20 +88,71 @@ const compactNtp = (ntp) => {
