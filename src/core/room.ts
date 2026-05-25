@@ -28,10 +28,12 @@ import type {
   SignalMessage,
   RoomState,
   IceServer,
+  ConnectionPath,
 } from "../types";
 
 export interface RoomCallbacks {
   onState?: (state: RoomState, detail?: string) => void;
+  onConnectionPath?: (path: ConnectionPath) => void;
   onMessage?: (msg: string) => void;
   onProgress?: (msg: string) => void;
   onError?: (err: Error) => void;
@@ -213,15 +215,58 @@ async function setupSession(
   destroy: () => void;
   waitForConnection: () => Promise<void>;
 }> {
-  const { onState, onProgress, onError } = callbacks;
+  const { onState, onProgress, onError, onConnectionPath } = callbacks;
 
   let hybridKey: CryptoKey = encryptionKey; // Starts as classical, upgraded after PQ
   let pqMessageHandler: ((msg: string) => Promise<boolean>) | null = null;
   const messageHandlers: ((msg: string) => void)[] = [];
   const fileDataHandlers: ((data: ArrayBuffer) => void)[] = [];
   const controlMessageHandlers: ((msg: string) => boolean)[] = [];
+  let localConnectionPath: ConnectionPath = "direct";
+  let emittedConnectionPath: ConnectionPath | null = null;
+  let connectionPathAdvertised = false;
   let connectionResolve: (() => void) | null = null;
   let connectionReject: ((err: Error) => void) | null = null;
+
+  const emitConnectionPath = (path: ConnectionPath): void => {
+    if (emittedConnectionPath === "blocked" && path !== "blocked") return;
+    if (emittedConnectionPath === path) return;
+    emittedConnectionPath = path;
+    onConnectionPath?.(path);
+  };
+
+  async function sendControlMessage(payload: Record<string, unknown>): Promise<void> {
+    const raw = CONTROL_PREFIX + JSON.stringify(payload);
+    const encrypted = await encrypt(raw, hybridKey);
+    peer.send(encrypted);
+  }
+
+  function handleInternalControlMessage(rawJson: string): boolean {
+    let msg: { type?: unknown; value?: unknown };
+    try {
+      msg = JSON.parse(rawJson) as { type?: unknown; value?: unknown };
+    } catch {
+      return false;
+    }
+
+    if (typeof msg.type !== "string") return false;
+
+    if (msg.type === "connection_type") {
+      if (msg.value === "relay") {
+        emitConnectionPath("relay");
+        onProgress?.("Peer reports relay path; using encrypted relay.");
+      } else if (msg.value === "direct") {
+        emitConnectionPath(localConnectionPath);
+      }
+      return true;
+    }
+
+    if (msg.type === "timer_sync") {
+      return true;
+    }
+
+    return false;
+  }
 
   const connectionPromise = new Promise<void>((resolve, reject) => {
     connectionResolve = resolve;
@@ -267,8 +312,34 @@ async function setupSession(
     }
   });
 
+  peer.on("connect", () => {
+    if (connectionPathAdvertised) return;
+    connectionPathAdvertised = true;
+    void sendControlMessage({ type: "connection_type", value: localConnectionPath }).catch(() => {
+      // Ignore best-effort control message errors
+    });
+  });
+
+  peer.on("ice-candidate", () => {
+    if (emittedConnectionPath !== null) return;
+    onProgress?.("Discovering network topology...");
+  });
+
   // 5. Handle data channel open → PQ upgrade
   peer.on("datachannel-open", async () => {
+    const candidateTypes = [...peer.getCandidateTypes()];
+    if (candidateTypes.length > 0) {
+      onProgress?.(`Local ICE candidates: ${candidateTypes.join("/")}`);
+    }
+
+    localConnectionPath = await peer.detectConnectionType();
+    emitConnectionPath(localConnectionPath);
+    onProgress?.(
+      localConnectionPath === "relay"
+        ? "Encrypted relay path detected (TURN)."
+        : "Direct peer-to-peer path detected."
+    );
+
     onState?.("pq_upgrade");
     onProgress?.("Data channel open, starting PQ upgrade...");
 
@@ -309,15 +380,15 @@ async function setupSession(
       if (handler(rawMsg)) return;
     }
 
-    // Try to decrypt as an encrypted chat message
+    // Try to decrypt as an encrypted chat/control message
     try {
-      let plaintext: string;
-      if (rawMsg.startsWith(CONTROL_PREFIX)) {
-        // Control message (e.g., timer_sync) — decrypt the rest
-        const encrypted = rawMsg.slice(1);
-        plaintext = CONTROL_PREFIX + await decrypt(encrypted, hybridKey);
-      } else {
-        plaintext = await decrypt(rawMsg, hybridKey);
+      const plaintext = await decrypt(rawMsg, hybridKey);
+
+      if (plaintext.startsWith(CONTROL_PREFIX)) {
+        const controlPayload = plaintext.slice(CONTROL_PREFIX.length);
+        if (handleInternalControlMessage(controlPayload)) {
+          return;
+        }
       }
 
       for (const handler of messageHandlers) {
@@ -345,6 +416,14 @@ async function setupSession(
 
   peer.on("error", (err: Error) => {
     onError?.(err);
+  });
+
+  peer.on("connection-failed", () => {
+    const err = new Error("Connection failed: direct and relay paths unavailable");
+    emitConnectionPath("blocked");
+    onProgress?.("TURN relay handshake failed; network may be highly restrictive.");
+    onError?.(err);
+    connectionReject?.(err);
   });
 
   // ── Public API ──────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ Fully interoperable with the web app — a CLI user can connect to a browser use
 Same cryptographic protocol as the [nullroom.io web app](https://github.com/nullroomio/nullroom):
 
 - **End-to-end encrypted** — AES-GCM-256 + ML-KEM-768 (post-quantum) hybrid key
-- **True P2P** — WebRTC DataChannels, server only relays signaling
+- **P2P-first transport** — direct WebRTC when available, encrypted Coturn relay fallback (`turns:` on 443/TCP) when NAT/firewall constraints require it
 - **Single binary** — compiles to a standalone executable via `bun build --compile`
 - **Agent-friendly** — `--json` flag on all commands for machine-readable output
 

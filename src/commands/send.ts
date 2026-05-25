@@ -20,6 +20,7 @@ import { resolve } from "path";
 export async function sendCommand(filePath: string, options: SendOptions): Promise<void> {
   const server = options.server || DEFAULT_SERVER;
   const json = options.json || false;
+  let lastConnectionPath: "direct" | "relay" | "blocked" | null = null;
 
   // Resolve and validate file
   const resolvedPath = resolve(filePath);
@@ -68,6 +69,23 @@ export async function sendCommand(filePath: string, options: SendOptions): Promi
           outputJson({ type: "error", error: err.message });
         } else {
           logError(err.message);
+        }
+      },
+      onConnectionPath: (path) => {
+        if (lastConnectionPath === path) return;
+        lastConnectionPath = path;
+
+        if (json) {
+          outputJson({ type: "connection_path", path });
+          return;
+        }
+
+        if (path === "direct") {
+          logSuccess("Connection path: direct P2P");
+        } else if (path === "relay") {
+          logInfo("Connection path: encrypted relay (TURN)");
+        } else {
+          logError("Connection path blocked (direct and relay unavailable)");
         }
       },
     });

@@ -116,11 +116,14 @@ export interface RoomOptions {
   server: string;
   json?: boolean;
   onState?: (state: RoomState, detail?: string) => void;
+  onConnectionPath?: (path: ConnectionPath) => void;
   onMessage?: (msg: string) => void;
   onFileProgress?: (name: string, percent: number) => void;
   onFileComplete?: (info: FileTransferComplete) => void;
   onError?: (err: Error) => void;
 }
+
+export type ConnectionPath = "direct" | "relay" | "blocked";
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 

@@ -20,6 +20,7 @@ export class PeerConnection {
   private listeners: Record<string, EventHandler[]> = {};
   private _connected: boolean = false;
   private _pendingCandidates: any[] = [];
+  private _candidateTypes: Set<string> = new Set();
   private initiator: boolean;
 
   constructor(options: {
@@ -50,6 +51,12 @@ export class PeerConnection {
     // Handle ICE candidates
     this.pc.onIceCandidate.subscribe((candidate) => {
       if (candidate) {
+        const cType = this._extractCandidateType(candidate);
+        if (cType) {
+          this._candidateTypes.add(cType.toUpperCase());
+          this._emit("ice-candidate", cType);
+        }
+
         this._emit("signal", {
           type: "candidate",
           candidate: {
@@ -65,7 +72,10 @@ export class PeerConnection {
     this.pc.iceConnectionStateChange.subscribe((state) => {
       if (state === "connected") {
         if (this._connected) this._emit("connect");
-      } else if (state === "failed" || state === "closed") {
+      } else if (state === "failed") {
+        this._emit("connection-failed");
+        this._emit("close");
+      } else if (state === "closed") {
         this._emit("close");
       }
     });
@@ -85,6 +95,62 @@ export class PeerConnection {
         }
       });
     }
+  }
+
+  /**
+   * Detect whether the active path is direct or relayed.
+   */
+  async detectConnectionType(): Promise<"direct" | "relay"> {
+    try {
+      const stats = await this.pc.getStats();
+      let activePairId: string | null = null;
+
+      for (const report of stats.values()) {
+        const r = report as any;
+        if (r.type === "transport" && r.selectedCandidatePairId) {
+          activePairId = r.selectedCandidatePairId;
+          break;
+        }
+      }
+
+      if (!activePairId) {
+        for (const report of stats.values()) {
+          const r = report as any;
+          if (r.type === "candidate-pair" && r.state === "succeeded" && r.nominated) {
+            activePairId = r.id;
+            break;
+          }
+        }
+      }
+
+      if (!activePairId) {
+        return "direct";
+      }
+
+      const pair = stats.get(activePairId) as any;
+      if (!pair) return "direct";
+
+      const localCandidate = pair.localCandidateId
+        ? (stats.get(pair.localCandidateId) as any)
+        : undefined;
+      const remoteCandidate = pair.remoteCandidateId
+        ? (stats.get(pair.remoteCandidateId) as any)
+        : undefined;
+
+      const localType = localCandidate?.candidateType;
+      const remoteType = remoteCandidate?.candidateType;
+
+      return localType === "relay" || remoteType === "relay" ? "relay" : "direct";
+    } catch {
+      return "direct";
+    }
+  }
+
+  /**
+   * Return gathered ICE candidate types in uppercase form.
+   */
+  getCandidateTypes(): Set<string> {
+    return new Set(this._candidateTypes);
   }
 
   private _createDataChannels(): void {
@@ -280,6 +346,20 @@ export class PeerConnection {
         callback(data);
       }
     }
+  }
+
+  private _extractCandidateType(candidate: any): string | null {
+    if (candidate?.type && typeof candidate.type === "string") {
+      return candidate.type;
+    }
+    if (candidate?.candidate && typeof candidate.candidate === "string") {
+      const match = /\btyp\s+(host|srflx|prflx|relay)\b/i.exec(candidate.candidate);
+      const candidateType = match?.[1];
+      if (candidateType) {
+        return candidateType.toLowerCase();
+      }
+    }
+    return null;
   }
 
   /**

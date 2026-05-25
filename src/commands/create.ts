@@ -22,6 +22,7 @@ import * as readline from "readline";
 export async function createCommand(options: CreateOptions): Promise<void> {
   const server = options.server || DEFAULT_SERVER;
   const json = options.json || false;
+  let lastConnectionPath: "direct" | "relay" | "blocked" | null = null;
 
   try {
     const session = await createRoom(server, {
@@ -56,6 +57,23 @@ export async function createCommand(options: CreateOptions): Promise<void> {
           outputJson({ type: "error", error: err.message });
         } else {
           logError(err.message);
+        }
+      },
+      onConnectionPath: (path) => {
+        if (lastConnectionPath === path) return;
+        lastConnectionPath = path;
+
+        if (json) {
+          outputJson({ type: "connection_path", path });
+          return;
+        }
+
+        if (path === "direct") {
+          logSuccess("Connection path: direct P2P");
+        } else if (path === "relay") {
+          logInfo("Connection path: encrypted relay (TURN)");
+        } else {
+          logError("Connection path blocked (direct and relay unavailable)");
         }
       },
     });

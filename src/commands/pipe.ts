@@ -12,6 +12,8 @@ import { DEFAULT_SERVER } from "../utils/config";
 import { outputJson, log, logInfo, logSuccess, logError } from "../utils/ui";
 import type { PipeOptions, RoomState } from "../types";
 
+const PIPE_READY_MARKER = "\x04PIPE_READY";
+
 export async function pipeCommand(code: string | undefined, options: PipeOptions): Promise<void> {
   const server = options.server || DEFAULT_SERVER;
   const json = options.json || false;
@@ -65,6 +67,30 @@ async function pipeSend(server: string, json: boolean): Promise<void> {
       onError: (err) => {
         logError(err.message);
       },
+      onConnectionPath: (path) => {
+        if (json) {
+          process.stderr.write(JSON.stringify({ type: "connection_path", path }) + "\n");
+          return;
+        }
+        if (path === "relay") {
+          logInfo("Connection path: encrypted relay (TURN)");
+        } else if (path === "direct") {
+          logInfo("Connection path: direct P2P");
+        } else {
+          logError("Connection path blocked (direct and relay unavailable)");
+        }
+      },
+    });
+
+    let receiverReadyResolve: (() => void) | null = null;
+    const receiverReadyPromise = new Promise<void>((resolve) => {
+      receiverReadyResolve = resolve;
+    });
+
+    session.onMessage((msg: string) => {
+      if (msg === PIPE_READY_MARKER) {
+        receiverReadyResolve?.();
+      }
     });
 
     // Output the code to stderr (so stdout stays clean for piping)
@@ -78,6 +104,12 @@ async function pipeSend(server: string, json: boolean): Promise<void> {
 
     // Wait for peer
     await session.waitForConnection();
+
+    // Wait for receiver app-level readiness to avoid first-message races.
+    await Promise.race([
+      receiverReadyPromise,
+      new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+    ]);
 
     // Send the data as a stream of encrypted messages
     // For simplicity, send as encrypted chat messages (chunked if large)
@@ -103,6 +135,8 @@ async function pipeSend(server: string, json: boolean): Promise<void> {
 
 async function pipeReceive(code: string, server: string, json: boolean): Promise<void> {
   try {
+    let readyForPayload = false;
+
     const session = await joinRoom(code, server, {
       onState: (state: RoomState) => {
         if (!json) {
@@ -115,16 +149,28 @@ async function pipeReceive(code: string, server: string, json: boolean): Promise
       onError: (err) => {
         logError(err.message);
       },
+      onConnectionPath: (path) => {
+        if (json) {
+          process.stderr.write(JSON.stringify({ type: "connection_path", path }) + "\n");
+          return;
+        }
+        if (path === "relay") {
+          logInfo("Connection path: encrypted relay (TURN)");
+        } else if (path === "direct") {
+          logInfo("Connection path: direct P2P");
+        } else {
+          logError("Connection path blocked (direct and relay unavailable)");
+        }
+      },
     });
 
-    await session.waitForConnection();
-
-    if (!json) {
-      process.stderr.write("  Connected. Receiving data...\n");
-    }
-
-    // Receive messages and output to stdout
+    // Register receiver handler before waiting for connection to avoid races
+    // where sender transmits immediately after PQ upgrade completes.
     session.onMessage((msg: string) => {
+      if (!readyForPayload) {
+        return;
+      }
+
       if (msg === "\x03") {
         // End of transmission
         session.destroy();
@@ -134,11 +180,19 @@ async function pipeReceive(code: string, server: string, json: boolean): Promise
         const base64 = msg.slice(1);
         const data = Buffer.from(base64, "base64");
         process.stdout.write(data);
-      } else {
-        // Regular message — output as-is
-        process.stdout.write(msg);
       }
     });
+
+    await session.waitForConnection();
+
+    readyForPayload = true;
+
+    // Signal sender that receiver handlers are fully installed.
+    await session.sendMessage(PIPE_READY_MARKER);
+
+    if (!json) {
+      process.stderr.write("  Connected. Receiving data...\n");
+    }
 
     // Timeout after 5 minutes of no data
     setTimeout(() => {

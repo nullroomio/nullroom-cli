@@ -1,0 +1,619 @@
+diff --git a/lib/common/src/transport.d.ts b/lib/common/src/transport.d.ts
+index f083bb7f06a9ee5ea17aab81c043e8da30a5c131..eae929a87487233034e3a987dd15f88dd75749c8 100644
+--- a/lib/common/src/transport.d.ts
++++ b/lib/common/src/transport.d.ts
+@@ -38,6 +38,25 @@ export declare class TcpTransport implements Transport {
+     send: (data: Buffer, addr?: Address) => Promise<void>;
+     close: () => Promise<void>;
+ }
++export declare class TlsTransport implements Transport {
++    private addr;
++    private options;
++    readonly type = "tls";
++    private connecting;
++    private client;
++    onData: (data: Buffer, addr: Address) => void;
++    closed: boolean;
++    private constructor();
++    private connect;
++    private init;
++    static init(addr: Address, options?: {
++        servername?: string;
++        rejectUnauthorized?: boolean;
++    }): Promise<TlsTransport>;
++    get address(): AddressInfo;
++    send: (data: Buffer, addr?: Address) => Promise<void>;
++    close: () => Promise<void>;
++}
+ export interface Transport {
+     type: string;
+     address: AddressInfo;
+diff --git a/lib/common/src/transport.js b/lib/common/src/transport.js
+index cd9c92cfc7e047f0bc8144335e8f18d01d789e07..5886cf8518e13c02ac33c6bdaf54fdd10b74fdfb 100644
+--- a/lib/common/src/transport.js
++++ b/lib/common/src/transport.js
+@@ -33,10 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
+     };
+ })();
+ Object.defineProperty(exports, "__esModule", { value: true });
+-exports.TcpTransport = exports.UdpTransport = void 0;
++exports.TlsTransport = exports.TcpTransport = exports.UdpTransport = void 0;
+ const dgram_1 = require("dgram");
+ const net = __importStar(require("node:net"));
+ const node_net_1 = require("node:net");
++const node_tls_1 = require("node:tls");
+ const log_1 = require("./log");
+ const network_1 = require("./network");
+ const log = (0, log_1.debug)("werift-ice:packages/ice/src/transport.ts");
+@@ -274,4 +275,121 @@ class TcpTransport {
+     }
+ }
+ exports.TcpTransport = TcpTransport;
++class TlsTransport {
++    constructor(addr, options = {}) {
++        Object.defineProperty(this, "addr", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: addr
++        });
++        Object.defineProperty(this, "options", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: options
++        });
++        Object.defineProperty(this, "type", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: "tls"
++        });
++        Object.defineProperty(this, "connecting", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: void 0
++        });
++        Object.defineProperty(this, "client", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: void 0
++        });
++        Object.defineProperty(this, "onData", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: () => { }
++        });
++        Object.defineProperty(this, "closed", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: false
++        });
++        Object.defineProperty(this, "send", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: async (data, _addr) => {
++                await this.connecting;
++                this.client.write(data, (err) => {
++                    if (err) {
++                        console.log("err", err);
++                    }
++                });
++            }
++        });
++        Object.defineProperty(this, "close", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: async () => {
++                this.closed = true;
++                this.client.destroy();
++            }
++        });
++        this.connect();
++    }
++    connect() {
++        if (this.closed) {
++            return;
++        }
++        if (this.client) {
++            this.client.destroy();
++        }
++        const [host, port] = this.addr;
++        const servername = this.options.servername ?? (net.isIP(host) ? undefined : host);
++        this.connecting = new Promise((resolve, reject) => {
++            try {
++                this.client = (0, node_tls_1.connect)({
++                    host,
++                    port,
++                    servername,
++                    rejectUnauthorized: this.options.rejectUnauthorized !== false,
++                }, resolve);
++            }
++            catch (error) {
++                reject(error);
++            }
++        });
++        this.client.on("data", (data) => {
++            const addr = [
++                this.client.remoteAddress,
++                this.client.remotePort,
++            ];
++            this.onData(data, addr);
++        });
++        this.client.on("end", () => {
++            this.connect();
++        });
++        this.client.on("error", (error) => {
++            console.log("error", error);
++        });
++    }
++    async init() {
++        await this.connecting;
++    }
++    static async init(addr, options = {}) {
++        const transport = new TlsTransport(addr, options);
++        await transport.init();
++        return transport;
++    }
++    get address() {
++        return {};
++    }
++}
++exports.TlsTransport = TlsTransport;
+ //# sourceMappingURL=transport.js.map
+diff --git a/lib/ice/src/ice.js b/lib/ice/src/ice.js
+index 74cf126300a922fe1eafd2d2453d23b087f1277b..1b7276769fc8b8209dcf3251f492edf4d89b8caf 100644
+--- a/lib/ice/src/ice.js
++++ b/lib/ice/src/ice.js
+@@ -684,6 +684,7 @@ class Connection {
+                     portRange: this.options.portRange,
+                     interfaceAddresses: this.options.interfaceAddresses,
+                     transport: this.options.turnTransport === "tcp" ? "tcp" : "udp",
++                    tls: this.options.turnTls === true,
+                 }).catch(async (e) => {
+                     if (this.options.turnTransport !== "tcp") {
+                         return await (0, protocol_2.createStunOverTurnClient)({
+@@ -694,6 +695,7 @@ class Connection {
+                             portRange: this.options.portRange,
+                             interfaceAddresses: this.options.interfaceAddresses,
+                             transport: "tcp",
++                            tls: this.options.turnTls === true,
+                         });
+                     }
+                     else {
+diff --git a/lib/ice/src/iceBase.d.ts b/lib/ice/src/iceBase.d.ts
+index ea4c070c0dddcc36c9d331a88aa75b5d64ae27a6..5cdc59bf7cc5c51ba50104d9c32e12496fb8823e 100644
+--- a/lib/ice/src/iceBase.d.ts
++++ b/lib/ice/src/iceBase.d.ts
+@@ -103,6 +103,7 @@ export interface IceOptions {
+     turnUsername?: string;
+     turnPassword?: string;
+     turnTransport?: "udp" | "tcp";
++    turnTls?: boolean;
+     forceTurn?: boolean;
+     localPasswordPrefix?: string;
+     useIpv4: boolean;
+diff --git a/lib/ice/src/turn/protocol.d.ts b/lib/ice/src/turn/protocol.d.ts
+index bcca4fc74a6bb78e23eb1c71e5a17c1950a31f9b..6b34721225b46a1577da3fdbe85a646638a71cd2 100644
+--- a/lib/ice/src/turn/protocol.d.ts
++++ b/lib/ice/src/turn/protocol.d.ts
+@@ -84,7 +84,7 @@ export interface TurnClientConfig {
+ }
+ export interface TurnClientOptions {
+     lifetime?: number;
+-    ssl?: boolean;
++    tls?: boolean;
+     transport?: "udp" | "tcp";
+     portRange?: [number, number];
+     interfaceAddresses?: InterfaceAddresses;
+@@ -96,7 +96,7 @@ export declare function createStunOverTurnClient({ address, username, password,
+     password: string;
+ }, { lifetime, portRange, interfaceAddresses, transport: transportType, }?: {
+     lifetime?: number;
+-    ssl?: boolean;
++    tls?: boolean;
+     transport?: "udp" | "tcp";
+     portRange?: [number, number];
+     interfaceAddresses?: InterfaceAddresses;
+diff --git a/lib/ice/src/turn/protocol.js b/lib/ice/src/turn/protocol.js
+index 7386a7f49de0e658d9b79538f581a74467ce1fb2..2e779a879624f033fa35fa58ac52507fd877c86a 100644
+--- a/lib/ice/src/turn/protocol.js
++++ b/lib/ice/src/turn/protocol.js
+@@ -568,23 +568,26 @@ Object.defineProperty(TurnProtocol, "type", {
+     writable: true,
+     value: "turn"
+ });
+-async function createTurnClient({ address, username, password }, { lifetime, portRange, interfaceAddresses, transport: transportType, } = {}) {
++async function createTurnClient({ address, username, password }, { lifetime, portRange, interfaceAddresses, transport: transportType, tls, } = {}) {
+     lifetime ?? (lifetime = DEFAULT_ALLOCATION_LIFETIME);
+     transportType ?? (transportType = "udp");
+     const transport = transportType === "udp"
+         ? await common_1.UdpTransport.init("udp4", { portRange, interfaceAddresses })
+-        : await common_1.TcpTransport.init(address);
++        : tls === true
++            ? await common_1.TlsTransport.init(address)
++            : await common_1.TcpTransport.init(address);
+     const turn = new TurnProtocol(address, username, password, lifetime, transport);
+     await turn.connectionMade();
+     return turn;
+ }
+-async function createStunOverTurnClient({ address, username, password, }, { lifetime, portRange, interfaceAddresses, transport: transportType, } = {}) {
++async function createStunOverTurnClient({ address, username, password, }, { lifetime, portRange, interfaceAddresses, transport: transportType, tls, } = {}) {
+     const turn = await createTurnClient({
+         address,
+         username,
+         password,
+     }, {
+         lifetime,
++        tls,
+         portRange,
+         interfaceAddresses,
+         transport: transportType,
+diff --git a/lib/index.mjs b/lib/index.mjs
+index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..d053144b8503304c7ad1d8d67f323a33677d0ce4 100644
+--- a/lib/index.mjs
++++ b/lib/index.mjs
+@@ -631,6 +631,7 @@ import {
+ } from "dgram";
+ import * as net from "node:net";
+ import { connect } from "node:net";
++import { connect as connectTls } from "node:tls";
+ var log = debug("werift-ice:packages/ice/src/transport.ts");
+ var UdpTransport = class _UdpTransport {
+   constructor(socketType, options = {}) {
+@@ -779,6 +780,80 @@ var TcpTransport = class _TcpTransport {
+     this.client.destroy();
+   };
+ };
++var TlsTransport = class _TlsTransport {
++  constructor(addr, options = {}) {
++    this.addr = addr;
++    this.options = options;
++    this.connect();
++  }
++  type = "tls";
++  connecting;
++  client;
++  onData = () => {
++  };
++  closed = false;
++  connect() {
++    if (this.closed) {
++      return;
++    }
++    if (this.client) {
++      this.client.destroy();
++    }
++    const [host, port] = this.addr;
++    const servername = this.options.servername ?? (net.isIP(host) ? void 0 : host);
++    this.connecting = new Promise((r, f) => {
++      try {
++        this.client = connectTls(
++          {
++            host,
++            port,
++            servername,
++            rejectUnauthorized: this.options.rejectUnauthorized !== false
++          },
++          r
++        );
++      } catch (error) {
++        f(error);
++      }
++    });
++    this.client.on("data", (data) => {
++      const addr = [
++        this.client.remoteAddress,
++        this.client.remotePort
++      ];
++      this.onData(data, addr);
++    });
++    this.client.on("end", () => {
++      this.connect();
++    });
++    this.client.on("error", (error) => {
++      console.log("error", error);
++    });
++  }
++  async init() {
++    await this.connecting;
++  }
++  static async init(addr, options = {}) {
++    const transport = new _TlsTransport(addr, options);
++    await transport.init();
++    return transport;
++  }
++  get address() {
++    return {};
++  }
++  send = async (data, _addr) => {
++    await this.connecting;
++    this.client.write(data, (err5) => {
++      if (err5) {
++        console.log("err", err5);
++      }
++    });
++  };
++  close = async () => {
++    this.closed = true;
++    this.client.destroy();
++  };
++};
+ 
+ // ../dtls/src/context/cipher.ts
+ import { createSign, randomBytes as randomBytes2, webcrypto } from "crypto";
+@@ -7490,13 +7565,14 @@ var TurnProtocol = class _TurnProtocol {
+ };
+ async function createTurnClient({ address, username, password }, {
+   lifetime,
++  tls,
+   portRange,
+   interfaceAddresses,
+   transport: transportType
+ } = {}) {
+   lifetime ??= DEFAULT_ALLOCATION_LIFETIME;
+   transportType ??= "udp";
+-  const transport = transportType === "udp" ? await UdpTransport.init("udp4", { portRange, interfaceAddresses }) : await TcpTransport.init(address);
++  const transport = transportType === "udp" ? await UdpTransport.init("udp4", { portRange, interfaceAddresses }) : tls === true ? await TlsTransport.init(address) : await TcpTransport.init(address);
+   const turn = new TurnProtocol(
+     address,
+     username,
+@@ -7513,6 +7589,7 @@ async function createStunOverTurnClient({
+   password
+ }, {
+   lifetime,
++  tls,
+   portRange,
+   interfaceAddresses,
+   transport: transportType
+@@ -7525,6 +7602,7 @@ async function createStunOverTurnClient({
+     },
+     {
+       lifetime,
++      tls,
+       portRange,
+       interfaceAddresses,
+       transport: transportType
+@@ -8171,7 +8249,8 @@ var Connection = class {
+           {
+             portRange: this.options.portRange,
+             interfaceAddresses: this.options.interfaceAddresses,
+-            transport: this.options.turnTransport === "tcp" ? "tcp" : "udp"
++            transport: this.options.turnTransport === "tcp" ? "tcp" : "udp",
++            tls: this.options.turnTls === true
+           }
+         ).catch(async (e) => {
+           if (this.options.turnTransport !== "tcp") {
+@@ -8184,7 +8263,8 @@ var Connection = class {
+               {
+                 portRange: this.options.portRange,
+                 interfaceAddresses: this.options.interfaceAddresses,
+-                transport: "tcp"
++                transport: "tcp",
++                tls: this.options.turnTls === true
+               }
+             );
+           } else {
+@@ -9390,23 +9470,59 @@ var compactNtp = (ntp) => {
+   return bufferWriter([2, 2], [sec, msec]).readUInt32BE();
+ };
+ function parseIceServers(iceServers) {
+-  const url2Address2 = (url) => {
+-    if (!url) return;
+-    const [address, port] = url.split(":");
+-    return [address, Number.parseInt(port)];
++  const urls = iceServers.flatMap((server) => {
++    const value = Array.isArray(server.urls) ? server.urls : [server.urls];
++    return value.map((url) => ({
++      url,
++      username: server.username,
++      credential: server.credential
++    }));
++  });
++  const parseIceUrl = (raw) => {
++    const match = /^(stun|turn|turns):([^?]+)(?:\?(.*))?$/i.exec(raw);
++    if (!match) return;
++    const scheme = match[1].toLowerCase();
++    const hostPort = match[2];
++    const query = match[3] || "";
++    const lastColon = hostPort.lastIndexOf(":");
++    const host = lastColon >= 0 ? hostPort.slice(0, lastColon) : hostPort;
++    const portRaw = lastColon >= 0 ? hostPort.slice(lastColon + 1) : "";
++    const port = Number.parseInt(portRaw || "", 10);
++    const transportMatch = /(?:^|&)transport=([^&]+)/i.exec(query);
++    const transport = transportMatch ? transportMatch[1].toLowerCase() : void 0;
++    return {
++      scheme,
++      host,
++      port: Number.isFinite(port) ? port : Number.NaN,
++      transport
++    };
+   };
+-  const stunServer = url2Address2(
+-    iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5)
+-  );
+-  const turnServer = url2Address2(
+-    iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5)
+-  );
+-  const { credential, username } = iceServers.find(({ urls }) => urls.includes("turn:")) || {};
++  const parsed = urls.map((entry) => {
++    const details = parseIceUrl(entry.url);
++    if (!details) return;
++    return {
++      ...entry,
++      ...details
++    };
++  }).filter((entry) => entry !== void 0);
++  const firstStun = parsed.find((entry) => entry.scheme === "stun");
++  const firstTurn = parsed.find((entry) => entry.scheme === "turn" || entry.scheme === "turns");
++  const normalizePort = (entry) => {
++    if (!entry) return Number.NaN;
++    if (Number.isFinite(entry.port)) return entry.port;
++    if (entry.scheme === "turn" || entry.scheme === "stun") return 3478;
++    if (entry.scheme === "turns") return 5349;
++    return Number.NaN;
++  };
++  const stunServer = firstStun ? [firstStun.host, normalizePort(firstStun)] : void 0;
++  const turnServer = firstTurn ? [firstTurn.host, normalizePort(firstTurn)] : void 0;
+   const options = {
+     stunServer,
+     turnServer,
+-    turnUsername: username,
+-    turnPassword: credential
++    turnUsername: firstTurn?.username,
++    turnPassword: firstTurn?.credential,
++    turnTransport: firstTurn?.transport === "tcp" ? "tcp" : "udp",
++    turnTls: firstTurn?.scheme === "turns"
+   };
+   log24("iceOptions", options);
+   return options;
+@@ -14874,8 +14990,9 @@ var SecureTransportManager = class {
+     const existing = this.iceTransports.find(
+       (transport) => transport.state !== "closed"
+     );
++    const parsedIceServers = parseIceServers(this.config.iceServers);
+     const iceGatherer = new RTCIceGatherer({
+-      ...parseIceServers(this.config.iceServers),
++      ...parsedIceServers,
+       forceTurn: this.config.iceTransportPolicy === "relay",
+       portRange: this.config.icePortRange,
+       interfaceAddresses: this.config.iceInterfaceAddresses,
+@@ -14885,7 +15002,8 @@ var SecureTransportManager = class {
+       localPasswordPrefix: this.config.icePasswordPrefix,
+       useIpv4: this.config.iceUseIpv4,
+       useIpv6: this.config.iceUseIpv6,
+-      turnTransport: this.config.forceTurnTCP === true ? "tcp" : "udp",
++      turnTransport: this.config.forceTurnTCP === true ? "tcp" : parsedIceServers.turnTransport,
++      turnTls: parsedIceServers.turnTls,
+       useLinkLocalAddress: this.config.iceUseLinkLocalAddress
+     });
+     if (existing) {
+diff --git a/lib/webrtc/src/secureTransportManager.js b/lib/webrtc/src/secureTransportManager.js
+index bc238f141664c62db9349561ed40563fc2e1db13..eec683e2ce422dd400a730b04695524f08ea90c2 100644
+--- a/lib/webrtc/src/secureTransportManager.js
++++ b/lib/webrtc/src/secureTransportManager.js
+@@ -105,8 +105,9 @@ class SecureTransportManager {
+     }
+     createTransport() {
+         const existing = this.iceTransports.find((transport) => transport.state !== "closed");
++        const parsedIceServers = (0, utils_1.parseIceServers)(this.config.iceServers);
+         const iceGatherer = new ice_1.RTCIceGatherer({
+-            ...(0, utils_1.parseIceServers)(this.config.iceServers),
++            ...parsedIceServers,
+             forceTurn: this.config.iceTransportPolicy === "relay",
+             portRange: this.config.icePortRange,
+             interfaceAddresses: this.config.iceInterfaceAddresses,
+@@ -116,7 +117,8 @@ class SecureTransportManager {
+             localPasswordPrefix: this.config.icePasswordPrefix,
+             useIpv4: this.config.iceUseIpv4,
+             useIpv6: this.config.iceUseIpv6,
+-            turnTransport: this.config.forceTurnTCP === true ? "tcp" : "udp",
++            turnTransport: this.config.forceTurnTCP === true ? "tcp" : parsedIceServers.turnTransport,
++            turnTls: parsedIceServers.turnTls,
+             useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
+         });
+         if (existing) {
+diff --git a/lib/webrtc/src/utils.d.ts b/lib/webrtc/src/utils.d.ts
+index bcf13c879740252a3ce8aeac2d419b7c3a805607..c02c9bed8e9091a9d022ee03327066c394f00911 100644
+--- a/lib/webrtc/src/utils.d.ts
++++ b/lib/webrtc/src/utils.d.ts
+@@ -24,6 +24,8 @@ export declare function parseIceServers(iceServers: RTCIceServer[]): {
+     turnServer: readonly [string, number] | undefined;
+     turnUsername: string | undefined;
+     turnPassword: string | undefined;
++    turnTransport: "udp" | "tcp";
++    turnTls: boolean;
+ };
+ /**
+  *
+diff --git a/lib/webrtc/src/utils.js b/lib/webrtc/src/utils.js
+index 038d05f9e52dd51872cf360cde5e9a33f203c2e0..93e41fc5a77226afcb15b80ce7fbe482637b22ef 100644
+--- a/lib/webrtc/src/utils.js
++++ b/lib/webrtc/src/utils.js
+@@ -88,20 +88,71 @@ const compactNtp = (ntp) => {
+ };
+ exports.compactNtp = compactNtp;
+ function parseIceServers(iceServers) {
+-    const url2Address = (url) => {
+-        if (!url)
++    const urls = iceServers.flatMap((server) => {
++        const value = Array.isArray(server.urls) ? server.urls : [server.urls];
++        return value.map((url) => ({
++            url,
++            username: server.username,
++            credential: server.credential,
++        }));
++    });
++    const parseIceUrl = (raw) => {
++        const match = /^(stun|turn|turns):([^?]+)(?:\?(.*))?$/i.exec(raw);
++        if (!match)
+             return;
+-        const [address, port] = url.split(":");
+-        return [address, Number.parseInt(port)];
++        const scheme = match[1].toLowerCase();
++        const hostPort = match[2];
++        const query = match[3] || "";
++        const lastColon = hostPort.lastIndexOf(":");
++        const host = lastColon >= 0 ? hostPort.slice(0, lastColon) : hostPort;
++        const portRaw = lastColon >= 0 ? hostPort.slice(lastColon + 1) : "";
++        const port = Number.parseInt(portRaw || "", 10);
++        const transportMatch = /(?:^|&)transport=([^&]+)/i.exec(query);
++        const transport = transportMatch ? transportMatch[1].toLowerCase() : undefined;
++        return {
++            scheme,
++            host,
++            port: Number.isFinite(port) ? port : Number.NaN,
++            transport,
++        };
++    };
++    const parsed = urls
++        .map((entry) => {
++        const details = parseIceUrl(entry.url);
++        if (!details)
++            return;
++        return {
++            ...entry,
++            ...details,
++        };
++    })
++        .filter((entry) => entry !== undefined);
++    const firstStun = parsed.find((entry) => entry.scheme === "stun");
++    const firstTurn = parsed.find((entry) => entry.scheme === "turn" || entry.scheme === "turns");
++    const normalizePort = (entry) => {
++        if (!entry)
++            return Number.NaN;
++        if (Number.isFinite(entry.port))
++            return entry.port;
++        if (entry.scheme === "turn" || entry.scheme === "stun")
++            return 3478;
++        if (entry.scheme === "turns")
++            return 5349;
++        return Number.NaN;
+     };
+-    const stunServer = url2Address(iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5));
+-    const turnServer = url2Address(iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5));
+-    const { credential, username } = iceServers.find(({ urls }) => urls.includes("turn:")) || {};
++    const stunServer = firstStun
++        ? [firstStun.host, normalizePort(firstStun)]
++        : undefined;
++    const turnServer = firstTurn
++        ? [firstTurn.host, normalizePort(firstTurn)]
++        : undefined;
+     const options = {
+         stunServer,
+         turnServer,
+-        turnUsername: username,
+-        turnPassword: credential,
++        turnUsername: firstTurn?.username,
++        turnPassword: firstTurn?.credential,
++        turnTransport: firstTurn?.transport === "tcp" ? "tcp" : "udp",
++        turnTls: firstTurn?.scheme === "turns",
+     };
+     log("iceOptions", options);
+     return options;

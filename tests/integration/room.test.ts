@@ -69,7 +69,8 @@ class FakePeerConnection {
   listeners: Record<string, EventHandler[]> = {};
   sentData: string[] = [];
   sentFiles: ArrayBuffer[] = [];
-  private _connected = false;
+  _connected = false;
+  private _connectionType: "direct" | "relay" = "direct";
 
   constructor(_options: any) {
     peerInstances.push(this);
@@ -93,6 +94,7 @@ class FakePeerConnection {
   async createOffer(): Promise<void> {
     // Simulate offer → immediate data channel open
     this._emit("datachannel-open");
+    this._emit("connect");
   }
 
   send(data: string): void {
@@ -102,12 +104,25 @@ class FakePeerConnection {
   }
 
   sendFile(data: ArrayBuffer | Buffer): void {
-    const buf = data instanceof Buffer ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : data;
-    this.sentFiles.push(buf);
+    const uint8 = data instanceof Buffer ? new Uint8Array(data) : new Uint8Array(data);
+    const copy = uint8.slice();
+    this.sentFiles.push(copy.buffer as ArrayBuffer);
   }
 
   getFileBufferedAmount(): number {
     return 0;
+  }
+
+  async detectConnectionType(): Promise<"direct" | "relay"> {
+    return this._connectionType;
+  }
+
+  getCandidateTypes(): Set<string> {
+    return new Set(["HOST"]);
+  }
+
+  _setConnectionType(type: "direct" | "relay"): void {
+    this._connectionType = type;
   }
 
   confirmReady(): void {
@@ -308,8 +323,18 @@ describe("createRoom", () => {
     await session.sendMessage("hello world");
 
     // Should have sent an encrypted string (not plaintext)
-    expect(peer.sentData).toHaveLength(1);
-    expect(peer.sentData[0]).not.toBe("hello world"); // It's encrypted
+    // At least one encrypted payload should decrypt to our chat text.
+    const decryptedPayloads = await Promise.all(
+      peer.sentData.map(async (payload) => {
+        try {
+          return await decrypt(payload, pqUpgradeKey!);
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    expect(decryptedPayloads).toContain("hello world");
 
     session.destroy();
   });
@@ -354,6 +379,32 @@ describe("createRoom", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(received).toContain("incoming message");
+
+    session.destroy();
+  });
+
+  test("connection path escalates to relay when peer reports relay", async () => {
+    mockFetch();
+
+    const connectionPaths: string[] = [];
+    const session = await createRoom("https://test.server", {
+      onConnectionPath: (path) => connectionPaths.push(path),
+    });
+
+    const sig = signalingInstances[0]!;
+    sig._injectMessage({ type: "peer_ready" });
+    await session.waitForConnection();
+
+    const peer = peerInstances[0]!;
+    const relayControl = await encrypt("\x01" + JSON.stringify({
+      type: "connection_type",
+      value: "relay",
+    }), pqUpgradeKey!);
+    peer._emit("data", relayControl);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(connectionPaths).toContain("direct");
+    expect(connectionPaths).toContain("relay");
 
     session.destroy();
   });

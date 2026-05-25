@@ -21,6 +21,7 @@ export async function receiveCommand(code: string, options: ReceiveOptions): Pro
   const server = options.server || DEFAULT_SERVER;
   const json = options.json || false;
   const outputDir = resolve(options.output || ".");
+  let lastConnectionPath: "direct" | "relay" | "blocked" | null = null;
 
   try {
     let fileReceived = false;
@@ -57,6 +58,23 @@ export async function receiveCommand(code: string, options: ReceiveOptions): Pro
           outputJson({ type: "error", error: err.message });
         } else {
           logError(err.message);
+        }
+      },
+      onConnectionPath: (path) => {
+        if (lastConnectionPath === path) return;
+        lastConnectionPath = path;
+
+        if (json) {
+          outputJson({ type: "connection_path", path });
+          return;
+        }
+
+        if (path === "direct") {
+          logSuccess("Connection path: direct P2P");
+        } else if (path === "relay") {
+          logInfo("Connection path: encrypted relay (TURN)");
+        } else {
+          logError("Connection path blocked (direct and relay unavailable)");
         }
       },
     });
