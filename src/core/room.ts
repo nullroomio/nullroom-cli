@@ -224,6 +224,7 @@ async function setupSession(
   const controlMessageHandlers: ((msg: string) => boolean)[] = [];
   let localConnectionPath: ConnectionPath = "direct";
   let emittedConnectionPath: ConnectionPath | null = null;
+  let topologyDiscoveryLogged = false;
   let connectionPathAdvertised = false;
   let connectionResolve: (() => void) | null = null;
   let connectionReject: ((err: Error) => void) | null = null;
@@ -321,7 +322,8 @@ async function setupSession(
   });
 
   peer.on("ice-candidate", () => {
-    if (emittedConnectionPath !== null) return;
+    if (emittedConnectionPath !== null || topologyDiscoveryLogged) return;
+    topologyDiscoveryLogged = true;
     onProgress?.("Discovering network topology...");
   });
 
@@ -341,7 +343,6 @@ async function setupSession(
     );
 
     onState?.("pq_upgrade");
-    onProgress?.("Data channel open, starting PQ upgrade...");
 
     try {
       const result = await performPQUpgrade(
@@ -358,7 +359,6 @@ async function setupSession(
       clearTimeout(connectionTimeout);
       peer.confirmReady();
       onState?.("connected");
-      onProgress?.("Post-quantum encryption active");
       connectionResolve?.();
     } catch (err) {
       clearTimeout(connectionTimeout);

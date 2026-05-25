@@ -30,7 +30,7 @@ export async function joinCommand(code: string, options: JoinOptions): Promise<v
         switch (state) {
           case "connecting":
             showBanner();
-            logInfo("Looking up room...");
+            logInfo("Connecting...");
             break;
           case "waiting":
             log("Connecting to room...");

@@ -71,6 +71,7 @@ class FakePeerConnection {
   sentFiles: ArrayBuffer[] = [];
   _connected = false;
   private _connectionType: "direct" | "relay" = "direct";
+  private _candidateTypes: Set<string> = new Set(["HOST"]);
 
   constructor(_options: any) {
     peerInstances.push(this);
@@ -118,11 +119,15 @@ class FakePeerConnection {
   }
 
   getCandidateTypes(): Set<string> {
-    return new Set(["HOST"]);
+    return new Set(this._candidateTypes);
   }
 
   _setConnectionType(type: "direct" | "relay"): void {
     this._connectionType = type;
+  }
+
+  _setCandidateTypes(types: string[]): void {
+    this._candidateTypes = new Set(types);
   }
 
   confirmReady(): void {
@@ -405,6 +410,43 @@ describe("createRoom", () => {
 
     expect(connectionPaths).toContain("direct");
     expect(connectionPaths).toContain("relay");
+
+    session.destroy();
+  });
+
+  test("logs topology discovery only once even with multiple ICE candidates", async () => {
+    mockFetch();
+
+    const progressMessages: string[] = [];
+    const session = await createRoom("https://test.server", {
+      onProgress: (msg) => progressMessages.push(msg),
+    });
+
+    const peer = peerInstances[0]!;
+    peer._emit("ice-candidate", "host");
+    peer._emit("ice-candidate", "srflx");
+    peer._emit("ice-candidate", "relay");
+
+    const topologyLogs = progressMessages.filter((msg) => msg === "Discovering network topology...");
+    expect(topologyLogs).toHaveLength(1);
+
+    session.destroy();
+  });
+
+  test("does not emit duplicate PQ start/active progress lines", async () => {
+    mockFetch();
+
+    const progressMessages: string[] = [];
+    const session = await createRoom("https://test.server", {
+      onProgress: (msg) => progressMessages.push(msg),
+    });
+
+    const sig = signalingInstances[0]!;
+    sig._injectMessage({ type: "peer_ready" });
+    await session.waitForConnection();
+
+    expect(progressMessages).not.toContain("Data channel open, starting PQ upgrade...");
+    expect(progressMessages).not.toContain("Post-quantum encryption active");
 
     session.destroy();
   });
