@@ -7,34 +7,48 @@
  * - If both → bidirectional pipe
  */
 
-import { createRoom, joinRoom } from "../core/room";
+import { createRoom as createRoomImpl, joinRoom as joinRoomImpl } from "../core/room";
 import { DEFAULT_SERVER } from "../utils/config";
 import { outputJson, log, logInfo, logSuccess, logError } from "../utils/ui";
 import type { PipeOptions, RoomState } from "../types";
 
 const PIPE_READY_MARKER = "\x04PIPE_READY";
 
-export async function pipeCommand(code: string | undefined, options: PipeOptions): Promise<void> {
-  const server = options.server || DEFAULT_SERVER;
-  const json = options.json || false;
-  const stdinIsTTY = process.stdin.isTTY;
+type CreateRoomFn = typeof createRoomImpl;
+type JoinRoomFn = typeof joinRoomImpl;
 
-  // Determine mode
-  if (code) {
-    // Join mode: receive data and output to stdout
-    await pipeReceive(code, server, json);
-  } else if (!stdinIsTTY) {
-    // Create mode: send stdin data through tunnel
-    await pipeSend(server, json);
-  } else {
-    logError("Usage: <command> | nr pipe   OR   nr pipe <code>");
-    logError("  Send: echo 'data' | nr pipe");
-    logError("  Receive: nr pipe <code> > output.txt");
-    process.exit(1);
-  }
+interface PipeRoomDeps {
+  createRoom: CreateRoomFn;
+  joinRoom: JoinRoomFn;
 }
 
-async function pipeSend(server: string, json: boolean): Promise<void> {
+export function createPipeCommand(
+  deps: PipeRoomDeps = { createRoom: createRoomImpl, joinRoom: joinRoomImpl }
+): (code: string | undefined, options: PipeOptions) => Promise<void> {
+  return async function pipeCommand(code: string | undefined, options: PipeOptions): Promise<void> {
+    const server = options.server || DEFAULT_SERVER;
+    const json = options.json || false;
+    const stdinIsTTY = process.stdin.isTTY;
+
+    // Determine mode
+    if (code) {
+      // Join mode: receive data and output to stdout
+      await pipeReceive(code, server, json, deps.joinRoom);
+    } else if (!stdinIsTTY) {
+      // Create mode: send stdin data through tunnel
+      await pipeSend(server, json, deps.createRoom);
+    } else {
+      logError("Usage: <command> | nr pipe   OR   nr pipe <code>");
+      logError("  Send: echo 'data' | nr pipe");
+      logError("  Receive: nr pipe <code> > output.txt");
+      process.exit(1);
+    }
+  };
+}
+
+export const pipeCommand = createPipeCommand();
+
+async function pipeSend(server: string, json: boolean, createRoom: CreateRoomFn): Promise<void> {
   try {
     // Read all stdin into a buffer
     const chunks: Uint8Array[] = [];
@@ -133,7 +147,7 @@ async function pipeSend(server: string, json: boolean): Promise<void> {
   }
 }
 
-async function pipeReceive(code: string, server: string, json: boolean): Promise<void> {
+async function pipeReceive(code: string, server: string, json: boolean, joinRoom: JoinRoomFn): Promise<void> {
   try {
     let readyForPayload = false;
 
