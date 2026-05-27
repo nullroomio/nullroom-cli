@@ -8,6 +8,7 @@ import { registerCleanup } from "../index";
 import {
   showBanner,
   showSeparator,
+  getInputPrompt,
   printChatMessage,
   outputJson,
   log,
@@ -112,30 +113,32 @@ export async function joinCommand(code: string, options: JoinOptions): Promise<v
         process.exit(0);
       });
     } else {
-      // Interactive mode: set up readline
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-        prompt: "> ",
-      });
-      rl.prompt();
+      // Interactive mode: set up readline and keep the session alive
+      await new Promise<void>((resolve) => {
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+          prompt: getInputPrompt(),
+        });
+        rl.prompt();
 
-      // Display incoming messages, clearing/restoring prompt
-      session.onMessage((msg: string) => {
-        printChatMessage("peer", msg, rl);
-      });
+        // Display incoming messages, clearing/restoring prompt
+        session.onMessage((msg: string) => {
+          printChatMessage("peer", msg, rl);
+        });
 
-      rl.on("line", async (line) => {
-        if (line.trim()) {
-          await session.sendMessage(line);
-          printChatMessage("you", line, rl);
-        } else {
-          rl.prompt();
-        }
-      });
-      rl.on("close", () => {
-        session.destroy();
-        process.exit(0);
+        rl.on("line", async (line) => {
+          if (line.trim()) {
+            await session.sendMessage(line);
+            printChatMessage("you", line, rl);
+          } else {
+            rl.prompt();
+          }
+        });
+        rl.on("close", () => {
+          session.destroy();
+          resolve();
+        });
       });
     }
   } catch (err) {

@@ -13,6 +13,7 @@ import { joinCommand } from "./commands/join";
 import { sendCommand } from "./commands/send";
 import { receiveCommand } from "./commands/receive";
 import { pipeCommand } from "./commands/pipe";
+import { initSessionUI, finishSessionUI } from "./utils/ui";
 
 // ── Global SIGINT handler for graceful shutdown ───────────────────────────────
 let cleanupFn: (() => void) | null = null;
@@ -39,6 +40,22 @@ process.on("SIGTERM", () => {
 
 const program = new Command();
 
+function withSessionUI<T extends unknown[]>(
+  commandName: string,
+  fn: (...args: T) => Promise<void>
+): (...args: T) => Promise<void> {
+  return async (...args: T): Promise<void> => {
+    const maybeOptions = (args[args.length - 1] ?? {}) as { json?: boolean };
+    initSessionUI(commandName, { json: maybeOptions.json === true });
+
+    try {
+      await fn(...args);
+    } finally {
+      finishSessionUI();
+    }
+  };
+}
+
 program
   .name(CLI_NAME)
   .description("Post-quantum encrypted P2P communication")
@@ -50,9 +67,9 @@ program
   .description("Create a new secure room")
   .option("--json", "Output connection info as JSON (agent mode)")
   .option("--server <url>", "Server URL", DEFAULT_SERVER)
-  .action(async (options) => {
+  .action(withSessionUI("create", async (options) => {
     await createCommand(options);
-  });
+  }));
 
 // ── nr join <code> ────────────────────────────────────────────────────────────
 program
@@ -61,9 +78,9 @@ program
   .argument("<code>", "4-word phrase or nr:// connection string")
   .option("--json", "JSON lines mode (agent mode)")
   .option("--server <url>", "Server URL", DEFAULT_SERVER)
-  .action(async (code, options) => {
+  .action(withSessionUI("join", async (code, options) => {
     await joinCommand(code, options);
-  });
+  }));
 
 // ── nr send <file> ────────────────────────────────────────────────────────────
 program
@@ -73,9 +90,9 @@ program
   .option("--json", "Output progress as JSON lines")
   .option("--server <url>", "Server URL", DEFAULT_SERVER)
   .option("--code <phrase>", "Use a specific phrase instead of generating one")
-  .action(async (file, options) => {
+  .action(withSessionUI("send", async (file, options) => {
     await sendCommand(file, options);
-  });
+  }));
 
 // ── nr receive <code> ─────────────────────────────────────────────────────────
 program
@@ -85,9 +102,9 @@ program
   .option("--json", "Output progress as JSON lines")
   .option("--server <url>", "Server URL", DEFAULT_SERVER)
   .option("--output <dir>", "Output directory", ".")
-  .action(async (code, options) => {
+  .action(withSessionUI("receive", async (code, options) => {
     await receiveCommand(code, options);
-  });
+  }));
 
 // ── nr pipe ───────────────────────────────────────────────────────────────────
 program
@@ -96,9 +113,9 @@ program
   .argument("[code]", "Join code (omit to create a new tunnel)")
   .option("--json", "Output connection info as JSON to stderr")
   .option("--server <url>", "Server URL", DEFAULT_SERVER)
-  .action(async (code, options) => {
+  .action(withSessionUI("pipe", async (code, options) => {
     await pipeCommand(code, options);
-  });
+  }));
 
 // Parse and execute
 program.parse();
