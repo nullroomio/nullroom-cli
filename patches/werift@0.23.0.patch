@@ -29,7 +29,7 @@ index f083bb7f06a9ee5ea17aab81c043e8da30a5c131..eae929a87487233034e3a987dd15f88d
      type: string;
      address: AddressInfo;
 diff --git a/lib/common/src/transport.js b/lib/common/src/transport.js
-index cd9c92cfc7e047f0bc8144335e8f18d01d789e07..2dbd2af28551a40e67f3ad9dddc2e0b3833d7ab6 100644
+index cd9c92cfc7e047f0bc8144335e8f18d01d789e07..fe11bec5ed906f50193e25557b82e12f9965d302 100644
 --- a/lib/common/src/transport.js
 +++ b/lib/common/src/transport.js
 @@ -33,13 +33,21 @@ var __importStar = (this && this.__importStar) || (function () {
@@ -194,6 +194,7 @@ index cd9c92cfc7e047f0bc8144335e8f18d01d789e07..2dbd2af28551a40e67f3ad9dddc2e0b3
 +}
 +exports.TlsTransport = TlsTransport;
  //# sourceMappingURL=transport.js.map
+\ No newline at end of file
 diff --git a/lib/ice/src/ice.js b/lib/ice/src/ice.js
 index 74cf126300a922fe1eafd2d2453d23b087f1277b..9dc5fbb584a0948d6d5ce284d9efcff423fa23a2 100644
 --- a/lib/ice/src/ice.js
@@ -283,7 +284,7 @@ index 7386a7f49de0e658d9b79538f581a74467ce1fb2..ca8af48d71889b9260dd71b53299f394
          interfaceAddresses,
          transport: transportType,
 diff --git a/lib/index.mjs b/lib/index.mjs
-index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..31e214e1e73e075eea3bed9c7d520f0e96822544 100644
+index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..b9af46a3738b2e28fbc768bc0134f03853acc71f 100644
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
 @@ -631,7 +631,15 @@ import {
@@ -524,7 +525,29 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..31e214e1e73e075eea3bed9c7d520f0e
    };
    log24("iceOptions", options);
    return options;
-@@ -14874,8 +15006,9 @@ var SecureTransportManager = class {
+@@ -12594,7 +12726,12 @@ var RTCSctpTransport = class _RTCSctpTransport {
+       const [channel, protocol, userData] = this.dataChannelQueue.shift();
+       let streamId = channel.id;
+       if (streamId === void 0) {
+-        streamId = this.dataChannelId;
++        const baseStreamId = this.dataChannelId;
++        if (baseStreamId === void 0) {
++          this.dataChannelQueue.unshift([channel, protocol, userData]);
++          return;
++        }
++        streamId = baseStreamId;
+         while (Object.keys(this.dataChannels).includes(streamId.toString())) {
+           streamId += 2;
+         }
+@@ -12658,6 +12795,7 @@ var RTCSctpTransport = class _RTCSctpTransport {
+     }
+     this.sctp.isServer = this.isServer;
+     await this.sctp.start(remotePort);
++    await this.dataChannelFlush();
+   }
+   async stop() {
+     this.dtlsTransport.dataReceiver = () => {
+@@ -14874,8 +15012,9 @@ var SecureTransportManager = class {
      const existing = this.iceTransports.find(
        (transport) => transport.state !== "closed"
      );
@@ -535,7 +558,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..31e214e1e73e075eea3bed9c7d520f0e
        forceTurn: this.config.iceTransportPolicy === "relay",
        portRange: this.config.icePortRange,
        interfaceAddresses: this.config.iceInterfaceAddresses,
-@@ -14885,7 +15018,8 @@ var SecureTransportManager = class {
+@@ -14885,7 +15024,8 @@ var SecureTransportManager = class {
        localPasswordPrefix: this.config.icePasswordPrefix,
        useIpv4: this.config.iceUseIpv4,
        useIpv6: this.config.iceUseIpv6,
@@ -570,6 +593,32 @@ index bc238f141664c62db9349561ed40563fc2e1db13..58a22d6262cf003bf013408c424c686a
              useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
          });
          if (existing) {
+diff --git a/lib/webrtc/src/transport/sctp.js b/lib/webrtc/src/transport/sctp.js
+index ef50903312a0e804706844cbd3dcee65870184a3..db882a82fb77844ccc096332242ff77c1a986107 100644
+--- a/lib/webrtc/src/transport/sctp.js
++++ b/lib/webrtc/src/transport/sctp.js
+@@ -329,7 +329,12 @@ class RTCSctpTransport {
+             const [channel, protocol, userData] = this.dataChannelQueue.shift();
+             let streamId = channel.id;
+             if (streamId === undefined) {
+-                streamId = this.dataChannelId;
++                const baseStreamId = this.dataChannelId;
++                if (baseStreamId === undefined) {
++                    this.dataChannelQueue.unshift([channel, protocol, userData]);
++                    return;
++                }
++                streamId = baseStreamId;
+                 while (Object.keys(this.dataChannels).includes(streamId.toString())) {
+                     streamId += 2;
+                 }
+@@ -382,6 +387,7 @@ class RTCSctpTransport {
+         }
+         this.sctp.isServer = this.isServer;
+         await this.sctp.start(remotePort);
++        await this.dataChannelFlush();
+     }
+     async stop() {
+         this.dtlsTransport.dataReceiver = () => { };
 diff --git a/lib/webrtc/src/utils.d.ts b/lib/webrtc/src/utils.d.ts
 index bcf13c879740252a3ce8aeac2d419b7c3a805607..c02c9bed8e9091a9d022ee03327066c394f00911 100644
 --- a/lib/webrtc/src/utils.d.ts
