@@ -24,6 +24,7 @@ export async function createCommand(options: CreateOptions): Promise<void> {
   const server = options.server || DEFAULT_SERVER;
   const json = options.json || false;
   let lastConnectionPath: "direct" | "relay" | "blocked" | null = null;
+  let chatRl: readline.Interface | null = null;
 
   try {
     const session = await createRoom(server, {
@@ -51,13 +52,17 @@ export async function createCommand(options: CreateOptions): Promise<void> {
         }
       },
       onProgress: (msg: string) => {
-        if (!json) logInfo(msg);
+        if (!json) {
+          logInfo(msg);
+          if (chatRl) chatRl.prompt(true);
+        }
       },
       onError: (err: Error) => {
         if (json) {
           outputJson({ type: "error", error: err.message });
         } else {
           logError(err.message);
+          if (chatRl) chatRl.prompt(true);
         }
       },
       onConnectionPath: (path) => {
@@ -76,6 +81,7 @@ export async function createCommand(options: CreateOptions): Promise<void> {
         } else {
           logError("Connection path blocked (direct and relay unavailable)");
         }
+        if (chatRl) chatRl.prompt(true);
       },
     });
 
@@ -131,6 +137,8 @@ export async function createCommand(options: CreateOptions): Promise<void> {
           output: process.stdout,
           prompt: getInputPrompt(),
         });
+        chatRl = rl;
+        log("");
         rl.prompt();
 
         // Display incoming messages, clearing/restoring prompt

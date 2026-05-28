@@ -23,6 +23,7 @@ export async function joinCommand(code: string, options: JoinOptions): Promise<v
   const server = options.server || DEFAULT_SERVER;
   const json = options.json || false;
   let lastConnectionPath: "direct" | "relay" | "blocked" | null = null;
+  let chatRl: readline.Interface | null = null;
 
   try {
     const session = await joinRoom(code, server, {
@@ -50,13 +51,17 @@ export async function joinCommand(code: string, options: JoinOptions): Promise<v
         }
       },
       onProgress: (msg: string) => {
-        if (!json) logInfo(msg);
+        if (!json) {
+          logInfo(msg);
+          if (chatRl) chatRl.prompt(true);
+        }
       },
       onError: (err: Error) => {
         if (json) {
           outputJson({ type: "error", error: err.message });
         } else {
           logError(err.message);
+          if (chatRl) chatRl.prompt(true);
         }
       },
       onConnectionPath: (path) => {
@@ -75,6 +80,7 @@ export async function joinCommand(code: string, options: JoinOptions): Promise<v
         } else {
           logError("Connection path blocked (direct and relay unavailable)");
         }
+        if (chatRl) chatRl.prompt(true);
       },
     });
 
@@ -120,6 +126,8 @@ export async function joinCommand(code: string, options: JoinOptions): Promise<v
           output: process.stdout,
           prompt: getInputPrompt(),
         });
+        chatRl = rl;
+        log("");
         rl.prompt();
 
         // Display incoming messages, clearing/restoring prompt
