@@ -1,3 +1,9 @@
+diff --git a/node_modules/werift/.bun-tag-4e08391d467750d b/.bun-tag-4e08391d467750d
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/werift/.bun-tag-a7944df8d1051ed3 b/.bun-tag-a7944df8d1051ed3
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/lib/common/src/transport.d.ts b/lib/common/src/transport.d.ts
 index f083bb7f06a9ee5ea17aab81c043e8da30a5c131..eae929a87487233034e3a987dd15f88dd75749c8 100644
 --- a/lib/common/src/transport.d.ts
@@ -284,7 +290,7 @@ index 7386a7f49de0e658d9b79538f581a74467ce1fb2..ca8af48d71889b9260dd71b53299f394
          interfaceAddresses,
          transport: transportType,
 diff --git a/lib/index.mjs b/lib/index.mjs
-index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..b9af46a3738b2e28fbc768bc0134f03853acc71f 100644
+index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283651130d2 100644
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
 @@ -631,7 +631,15 @@ import {
@@ -400,6 +406,29 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..b9af46a3738b2e28fbc768bc0134f038
  
  // ../dtls/src/context/cipher.ts
  import { createSign, randomBytes as randomBytes2, webcrypto } from "crypto";
+@@ -7306,7 +7397,7 @@ var TurnProtocol = class _TurnProtocol {
+         this.handleSTUNMessage(data2, addr2);
+       }
+     };
+-    if (this.transport.type === "tcp") {
++    if (this.transport.type === "tcp" || this.transport.type === "tls") {
+       this.tcpBuffer = Buffer.concat([this.tcpBuffer, data]);
+       while (this.tcpBuffer.length >= 4) {
+         let [, length] = bufferReader(this.tcpBuffer.subarray(0, 4), [2, 2]);
+@@ -7322,11 +7413,11 @@ var TurnProtocol = class _TurnProtocol {
+       datagramReceived(data, addr);
+     }
+   }
+-  async send(data, addr) {
++  async sendData(data, addr) {
+     if (this.transport.closed) {
+       return;
+     }
+-    if (this.transport.type === "tcp") {
++    if (this.transport.type === "tcp" || this.transport.type === "tls") {
+       const padding = paddingLength(data.length);
+       await this.transport.send(
+         padding > 0 ? Buffer.concat([data, Buffer.alloc(padding)]) : data,
 @@ -7490,13 +7581,14 @@ var TurnProtocol = class _TurnProtocol {
  };
  async function createTurnClient({ address, username, password }, {
@@ -594,7 +623,7 @@ index bc238f141664c62db9349561ed40563fc2e1db13..58a22d6262cf003bf013408c424c686a
          });
          if (existing) {
 diff --git a/lib/webrtc/src/transport/sctp.js b/lib/webrtc/src/transport/sctp.js
-index ef50903312a0e804706844cbd3dcee65870184a3..db882a82fb77844ccc096332242ff77c1a986107 100644
+index ef50903312a0e804706844cbd3dcee65870184a3..fda141d68cc13858742a6e0cb15754d0842c62c5 100644
 --- a/lib/webrtc/src/transport/sctp.js
 +++ b/lib/webrtc/src/transport/sctp.js
 @@ -329,7 +329,12 @@ class RTCSctpTransport {

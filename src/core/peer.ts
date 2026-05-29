@@ -43,19 +43,22 @@ export class PeerConnection {
       }
     }
 
-    // Create RTCPeerConnection with ICE servers
     this.pc = new RTCPeerConnection({
       iceServers: flatIceServers,
+      iceTransportPolicy: "relay",
     });
 
     // Handle ICE candidates
     this.pc.onIceCandidate.subscribe((candidate) => {
       if (candidate) {
         const cType = this._extractCandidateType(candidate);
-        if (cType) {
-          this._candidateTypes.add(cType.toUpperCase());
-          this._emit("ice-candidate", cType);
-        }
+
+        // werift doesn't properly respect iceTransportPolicy:"relay",
+        // so we filter non-relay candidates at the application layer.
+        if (cType !== "relay") return;
+
+        this._candidateTypes.add(cType.toUpperCase());
+        this._emit("ice-candidate", cType);
 
         this._emit("signal", {
           type: "candidate",
@@ -123,9 +126,7 @@ export class PeerConnection {
         }
       }
 
-      if (!activePairId) {
-        return "direct";
-      }
+      if (!activePairId) return "direct";
 
       const pair = stats.get(activePairId) as any;
       if (!pair) return "direct";
@@ -168,7 +169,6 @@ export class PeerConnection {
   private _setupDataChannel(): void {
     if (!this.dataChannel) return;
 
-    // werift uses stateChanged event and onMessage event
     this.dataChannel.stateChanged.subscribe((state) => {
       if (state === "open") {
         this._emit("datachannel-open");
@@ -181,7 +181,6 @@ export class PeerConnection {
       if (typeof msg === "string") {
         this._emit("data", msg);
       } else {
-        // Buffer → string
         this._emit("data", msg.toString("utf-8"));
       }
     });
@@ -198,10 +197,8 @@ export class PeerConnection {
 
     this.fileChannel.onMessage.subscribe((msg) => {
       if (typeof msg === "string") {
-        // String data on file channel — could be control JSON
         this._emit("data", msg);
       } else {
-        // Binary data - extract ArrayBuffer
         const buf = msg instanceof Buffer ? msg : Buffer.from(msg);
         this._emit(
           "file-data",
@@ -218,11 +215,16 @@ export class PeerConnection {
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
 
+    this._forceWeriftDtlsClient();
+
+    let sdp = this._stripNonRelayCandidatesFromSdp(this.pc.localDescription!.sdp);
+    sdp = this._forceDtlsClientRole(sdp);
+
     this._emit("signal", {
       type: "offer",
       sdp: {
         type: this.pc.localDescription!.type,
-        sdp: this.pc.localDescription!.sdp,
+        sdp,
       },
     });
   }
@@ -233,17 +235,24 @@ export class PeerConnection {
   async signal(data: SignalMessage): Promise<void> {
     try {
       if (data.type === "offer" && data.sdp) {
+        const remoteSdp = this._stripNonRelayCandidatesFromSdp(data.sdp.sdp);
         await this.pc.setRemoteDescription(
-          new RTCSessionDescription(data.sdp.sdp, data.sdp.type as any)
+          new RTCSessionDescription(remoteSdp, data.sdp.type as any)
         );
         await this._flushPendingCandidates();
         await this._createAnswer();
       } else if (data.type === "answer" && data.sdp) {
+        const remoteSdp = this._stripNonRelayCandidatesFromSdp(data.sdp.sdp);
         await this.pc.setRemoteDescription(
-          new RTCSessionDescription(data.sdp.sdp, data.sdp.type as any)
+          new RTCSessionDescription(remoteSdp, data.sdp.type as any)
         );
         await this._flushPendingCandidates();
       } else if (data.type === "candidate" && data.candidate) {
+        const remoteCType = this._extractCandidateTypeFromSdp(data.candidate.candidate);
+
+        // Only accept relay candidates from the remote peer
+        if (remoteCType && remoteCType !== "relay") return;
+
         if (this.pc.remoteDescription) {
           await this.pc.addIceCandidate({
             candidate: data.candidate.candidate,
@@ -263,11 +272,16 @@ export class PeerConnection {
     const answer = await this.pc.createAnswer();
     await this.pc.setLocalDescription(answer);
 
+    this._forceWeriftDtlsClient();
+
+    let sdp = this._stripNonRelayCandidatesFromSdp(this.pc.localDescription!.sdp);
+    sdp = this._forceDtlsClientRole(sdp);
+
     this._emit("signal", {
       type: "answer",
       sdp: {
         type: this.pc.localDescription!.type,
-        sdp: this.pc.localDescription!.sdp,
+        sdp,
       },
     });
   }
@@ -321,9 +335,6 @@ export class PeerConnection {
     return this.fileChannel?.bufferedAmount ?? 0;
   }
 
-  /**
-   * Register an event handler.
-   */
   on(event: string, callback: EventHandler): void {
     if (!this.listeners[event]) {
       this.listeners[event] = [];
@@ -331,9 +342,6 @@ export class PeerConnection {
     this.listeners[event].push(callback);
   }
 
-  /**
-   * Remove an event handler.
-   */
   off(event: string, callback: EventHandler): void {
     if (this.listeners[event]) {
       this.listeners[event] = this.listeners[event].filter((h) => h !== callback);
@@ -354,12 +362,58 @@ export class PeerConnection {
     }
     if (candidate?.candidate && typeof candidate.candidate === "string") {
       const match = /\btyp\s+(host|srflx|prflx|relay)\b/i.exec(candidate.candidate);
-      const candidateType = match?.[1];
-      if (candidateType) {
-        return candidateType.toLowerCase();
-      }
+      return match?.[1]?.toLowerCase() ?? null;
     }
     return null;
+  }
+
+  private _extractCandidateTypeFromSdp(sdpLine: string): string | null {
+    if (!sdpLine) return null;
+    const match = /\btyp\s+(host|srflx|prflx|relay)\b/i.exec(sdpLine);
+    return match?.[1]?.toLowerCase() ?? null;
+  }
+
+  /**
+   * Strip non-relay candidates from SDP.
+   * werift doesn't respect iceTransportPolicy:"relay" for candidate gathering,
+   * so we filter the SDP to ensure only relay candidates are exchanged.
+   */
+  private _stripNonRelayCandidatesFromSdp(sdp: string): string {
+    return sdp
+      .split("\r\n")
+      .filter((line) => {
+        if (!line.startsWith("a=candidate:")) return true;
+        return /\btyp\s+relay\b/i.test(line);
+      })
+      .join("\r\n");
+  }
+
+  /**
+   * Force DTLS client role in SDP.
+   * werift's DTLS server crashes when processing modern browser ClientHellos
+   * (TypeError in flight2 ServerHello generation). By advertising setup:active,
+   * the browser becomes the DTLS server (which works correctly).
+   */
+  private _forceDtlsClientRole(sdp: string): string {
+    return sdp.replace(/a=setup:(actpass|passive)/g, "a=setup:active");
+  }
+
+  /**
+   * Force werift's internal DTLS transport to act as client.
+   * Complements _forceDtlsClientRole by setting the role before the
+   * DTLS handshake starts internally.
+   */
+  private _forceWeriftDtlsClient(): void {
+    try {
+      const dtlsTransports = (this.pc as any).dtlsTransports;
+      if (dtlsTransports) {
+        for (const dt of dtlsTransports) {
+          if (dt && dt.role !== "client") {
+            dt.role = "client";
+          }
+        }
+      }
+    } catch {}
   }
 
   /**
