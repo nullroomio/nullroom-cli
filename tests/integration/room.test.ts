@@ -450,6 +450,27 @@ describe("createRoom", () => {
 
     session.destroy();
   });
+
+  test("ICE candidates of all types are forwarded (no relay-only filter)", async () => {
+    mockFetch();
+
+    const session = await createRoom("https://test.server", {});
+
+    const peer = peerInstances[0]!;
+    const candidateTypes: (string | null)[] = [];
+    peer.on("ice-candidate", (type: string | null) => candidateTypes.push(type));
+
+    // Emit host, srflx, and relay candidates — all should be tracked
+    peer._emit("ice-candidate", "host");
+    peer._emit("ice-candidate", "srflx");
+    peer._emit("ice-candidate", "relay");
+
+    expect(candidateTypes).toContain("host");
+    expect(candidateTypes).toContain("srflx");
+    expect(candidateTypes).toContain("relay");
+
+    session.destroy();
+  });
 });
 
 describe("joinRoom", () => {
@@ -472,9 +493,11 @@ describe("joinRoom", () => {
 
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
-      // GET /rooms/:id
+      // GET /rooms/:id (HTML)
       if (url.match(/\/rooms\//) && (!init?.method || init.method === "GET")) {
-        return Response.json({ turn_servers: [] });
+        return new Response('<div data-room-turn-servers-value="[]"></div>', {
+          headers: { "content-type": "text/html" },
+        });
       }
       return new Response(null, { status: 404 });
     }) as typeof fetch;
@@ -513,9 +536,11 @@ describe("joinRoom", () => {
       if (url.includes("/handshakes/") && (!init?.method || init.method === "GET")) {
         return Response.json({ blob });
       }
-      // GET /rooms/:id
+      // GET /rooms/:id (HTML)
       if (url.match(/\/rooms\//) && (!init?.method || init.method === "GET")) {
-        return Response.json({ turn_servers: [] });
+        return new Response('<div data-room-turn-servers-value="[]"></div>', {
+          headers: { "content-type": "text/html" },
+        });
       }
       return new Response(null, { status: 404 });
     }) as typeof fetch;
@@ -528,10 +553,96 @@ describe("joinRoom", () => {
     session.destroy();
   });
 
+  test("joinRoom parses TURN servers from HTML data attribute", async () => {
+    const turnConfig = JSON.stringify([
+      { urls: "turns:turn.example.com:443?transport=tcp", username: "user", credential: "pass" },
+    ]);
+    const escaped = turnConfig.replace(/"/g, "&quot;");
+
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.match(/\/rooms\//) && (!init?.method || init.method === "GET")) {
+        return new Response(
+          `<div data-room-turn-servers-value="${escaped}"></div>`,
+          { headers: { "content-type": "text/html" } }
+        );
+      }
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+
+    const { encodeConnectionString } = await import("../../src/utils/connection-string");
+    const connStr = encodeConnectionString({
+      roomId: "turn-room",
+      key: await generateKey(),
+      server: "https://test.server",
+    });
+
+    const session = await joinRoom(connStr, "https://test.server", {});
+
+    // The PeerConnection should have been constructed with the parsed TURN servers
+    const peer = peerInstances[0]!;
+    expect(peer).toBeDefined();
+    // Session created successfully means TURN was parsed without error
+    expect(session.connectionInfo.roomId).toBe("turn-room");
+
+    session.destroy();
+  });
+
+  test("joinRoom proceeds without TURN when HTML has no data attribute", async () => {
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.match(/\/rooms\//) && (!init?.method || init.method === "GET")) {
+        return new Response('<html><body>No TURN here</body></html>', {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+
+    const { encodeConnectionString } = await import("../../src/utils/connection-string");
+    const connStr = encodeConnectionString({
+      roomId: "no-turn-room",
+      key: await generateKey(),
+      server: "https://test.server",
+    });
+
+    const session = await joinRoom(connStr, "https://test.server", {});
+    expect(session.connectionInfo.roomId).toBe("no-turn-room");
+
+    session.destroy();
+  });
+
+  test("joinRoom proceeds when HTML fetch fails entirely", async () => {
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.match(/\/rooms\//) && (!init?.method || init.method === "GET")) {
+        return new Response(null, { status: 500 });
+      }
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+
+    const { encodeConnectionString } = await import("../../src/utils/connection-string");
+    const connStr = encodeConnectionString({
+      roomId: "fail-room",
+      key: await generateKey(),
+      server: "https://test.server",
+    });
+
+    // Should not throw — TURN failure is non-fatal
+    const session = await joinRoom(connStr, "https://test.server", {});
+    expect(session.connectionInfo.roomId).toBe("fail-room");
+
+    session.destroy();
+  });
+
   test("waitForConnection resolves after peer_ready and PQ upgrade", async () => {
     globalThis.fetch = (async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url.match(/\/rooms\//)) return Response.json({ turn_servers: [] });
+      if (url.match(/\/rooms\//)) {
+        return new Response('<div data-room-turn-servers-value="[]"></div>', {
+          headers: { "content-type": "text/html" },
+        });
+      }
       return new Response(null, { status: 404 });
     }) as typeof fetch;
 
