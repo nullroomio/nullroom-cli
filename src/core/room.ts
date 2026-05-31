@@ -167,15 +167,28 @@ export async function joinRoom(
   // Import the encryption key
   const encryptionKey = await importKey(connectionInfo.key);
 
-  // Get TURN servers by hitting the room show endpoint
-  const showRes = await fetch(`${actualServer}/rooms/${connectionInfo.roomId}`, {
-    headers: { "Accept": "application/json" },
-  });
-
+  // Get TURN servers from the room page.
+  // The server embeds them in an HTML data attribute (data-room-turn-servers-value),
+  // not in a JSON API endpoint. This matches how the web app obtains them.
   let turnServers: IceServer[] = [];
-  if (showRes.ok) {
-    const showData = await showRes.json() as { turn_servers?: IceServer[] };
-    turnServers = showData.turn_servers || [];
+  try {
+    const showRes = await fetch(`${actualServer}/rooms/${connectionInfo.roomId}`, {
+      headers: { "Accept": "text/html" },
+    });
+    if (showRes.ok) {
+      const html = await showRes.text();
+      const turnMatch = html.match(/data-room-turn-servers-value="([^"]+)"/);
+      if (turnMatch?.[1]) {
+        const decoded = turnMatch[1]
+          .replace(/&quot;/g, '"')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>');
+        turnServers = JSON.parse(decoded) as IceServer[];
+      }
+    }
+  } catch {
+    // Non-fatal: proceed without TURN (direct may still work)
   }
 
   // Set up signaling and peer connection

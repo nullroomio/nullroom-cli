@@ -45,7 +45,6 @@ export class PeerConnection {
 
     this.pc = new RTCPeerConnection({
       iceServers: flatIceServers,
-      iceTransportPolicy: "relay",
     });
 
     // Handle ICE candidates
@@ -53,11 +52,7 @@ export class PeerConnection {
       if (candidate) {
         const cType = this._extractCandidateType(candidate);
 
-        // werift doesn't properly respect iceTransportPolicy:"relay",
-        // so we filter non-relay candidates at the application layer.
-        if (cType !== "relay") return;
-
-        this._candidateTypes.add(cType.toUpperCase());
+        if (cType) this._candidateTypes.add(cType.toUpperCase());
         this._emit("ice-candidate", cType);
 
         this._emit("signal", {
@@ -217,8 +212,7 @@ export class PeerConnection {
 
     this._forceWeriftDtlsClient();
 
-    let sdp = this._stripNonRelayCandidatesFromSdp(this.pc.localDescription!.sdp);
-    sdp = this._forceDtlsClientRole(sdp);
+    const sdp = this._forceDtlsClientRole(this.pc.localDescription!.sdp);
 
     this._emit("signal", {
       type: "offer",
@@ -235,24 +229,17 @@ export class PeerConnection {
   async signal(data: SignalMessage): Promise<void> {
     try {
       if (data.type === "offer" && data.sdp) {
-        const remoteSdp = this._stripNonRelayCandidatesFromSdp(data.sdp.sdp);
         await this.pc.setRemoteDescription(
-          new RTCSessionDescription(remoteSdp, data.sdp.type as any)
+          new RTCSessionDescription(data.sdp.sdp, data.sdp.type as any)
         );
         await this._flushPendingCandidates();
         await this._createAnswer();
       } else if (data.type === "answer" && data.sdp) {
-        const remoteSdp = this._stripNonRelayCandidatesFromSdp(data.sdp.sdp);
         await this.pc.setRemoteDescription(
-          new RTCSessionDescription(remoteSdp, data.sdp.type as any)
+          new RTCSessionDescription(data.sdp.sdp, data.sdp.type as any)
         );
         await this._flushPendingCandidates();
       } else if (data.type === "candidate" && data.candidate) {
-        const remoteCType = this._extractCandidateTypeFromSdp(data.candidate.candidate);
-
-        // Only accept relay candidates from the remote peer
-        if (remoteCType && remoteCType !== "relay") return;
-
         if (this.pc.remoteDescription) {
           await this.pc.addIceCandidate({
             candidate: data.candidate.candidate,
@@ -274,8 +261,7 @@ export class PeerConnection {
 
     this._forceWeriftDtlsClient();
 
-    let sdp = this._stripNonRelayCandidatesFromSdp(this.pc.localDescription!.sdp);
-    sdp = this._forceDtlsClientRole(sdp);
+    const sdp = this._forceDtlsClientRole(this.pc.localDescription!.sdp);
 
     this._emit("signal", {
       type: "answer",
@@ -365,27 +351,6 @@ export class PeerConnection {
       return match?.[1]?.toLowerCase() ?? null;
     }
     return null;
-  }
-
-  private _extractCandidateTypeFromSdp(sdpLine: string): string | null {
-    if (!sdpLine) return null;
-    const match = /\btyp\s+(host|srflx|prflx|relay)\b/i.exec(sdpLine);
-    return match?.[1]?.toLowerCase() ?? null;
-  }
-
-  /**
-   * Strip non-relay candidates from SDP.
-   * werift doesn't respect iceTransportPolicy:"relay" for candidate gathering,
-   * so we filter the SDP to ensure only relay candidates are exchanged.
-   */
-  private _stripNonRelayCandidatesFromSdp(sdp: string): string {
-    return sdp
-      .split("\r\n")
-      .filter((line) => {
-        if (!line.startsWith("a=candidate:")) return true;
-        return /\btyp\s+relay\b/i.test(line);
-      })
-      .join("\r\n");
   }
 
   /**

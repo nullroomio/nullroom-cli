@@ -1,6 +1,9 @@
 diff --git a/node_modules/werift/.bun-tag-4e08391d467750d b/.bun-tag-4e08391d467750d
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/werift/.bun-tag-89890e485463743c b/.bun-tag-89890e485463743c
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/node_modules/werift/.bun-tag-a7944df8d1051ed3 b/.bun-tag-a7944df8d1051ed3
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
@@ -202,7 +205,7 @@ index cd9c92cfc7e047f0bc8144335e8f18d01d789e07..fe11bec5ed906f50193e25557b82e12f
  //# sourceMappingURL=transport.js.map
 \ No newline at end of file
 diff --git a/lib/ice/src/ice.js b/lib/ice/src/ice.js
-index 74cf126300a922fe1eafd2d2453d23b087f1277b..9dc5fbb584a0948d6d5ce284d9efcff423fa23a2 100644
+index 74cf126300a922fe1eafd2d2453d23b087f1277b..a046dc5ca8e7e4ede0fdf32a5e93556971fb3f77 100644
 --- a/lib/ice/src/ice.js
 +++ b/lib/ice/src/ice.js
 @@ -684,6 +684,7 @@ class Connection {
@@ -221,6 +224,14 @@ index 74cf126300a922fe1eafd2d2453d23b087f1277b..9dc5fbb584a0948d6d5ce284d9efcff4
                          });
                      }
                      else {
+@@ -709,7 +711,6 @@ class Connection {
+                 this.appendLocalCandidate(protocol.localCandidate);
+                 return protocol.localCandidate;
+             })().catch((error) => {
+-                log("query TURN server", error);
+             });
+             if (this.options.forceTurn) {
+                 candidatePromises = [];
 diff --git a/lib/ice/src/iceBase.d.ts b/lib/ice/src/iceBase.d.ts
 index ea4c070c0dddcc36c9d331a88aa75b5d64ae27a6..5cdc59bf7cc5c51ba50104d9c32e12496fb8823e 100644
 --- a/lib/ice/src/iceBase.d.ts
@@ -290,7 +301,7 @@ index 7386a7f49de0e658d9b79538f581a74467ce1fb2..ca8af48d71889b9260dd71b53299f394
          interfaceAddresses,
          transport: transportType,
 diff --git a/lib/index.mjs b/lib/index.mjs
-index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283651130d2 100644
+index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..f9c30569ae63ebb930ed185db6f64224f480b930 100644
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
 @@ -631,7 +631,15 @@ import {
@@ -429,7 +440,23 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283
        const padding = paddingLength(data.length);
        await this.transport.send(
          padding > 0 ? Buffer.concat([data, Buffer.alloc(padding)]) : data,
-@@ -7490,13 +7581,14 @@ var TurnProtocol = class _TurnProtocol {
+@@ -7480,6 +7571,15 @@ var TurnProtocol = class _TurnProtocol {
+       throw new Error("should be CHANNEL_BIND");
+     }
+   }
++  async send(data, addr) {
++    if (this.transport.closed) { return; }
++    if (this.transport.type === "tcp" || this.transport.type === "tls") {
++      const padding = paddingLength(data.length);
++      await this.transport.send(padding > 0 ? Buffer.concat([data, Buffer.alloc(padding)]) : data, addr);
++    } else {
++      await this.transport.send(data, addr);
++    }
++  }
+   async sendStun(message, addr) {
+     await this.send(message.bytes, addr);
+   }
+@@ -7490,13 +7590,14 @@ var TurnProtocol = class _TurnProtocol {
  };
  async function createTurnClient({ address, username, password }, {
    lifetime,
@@ -445,7 +472,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283
    const turn = new TurnProtocol(
      address,
      username,
-@@ -7513,6 +7605,7 @@ async function createStunOverTurnClient({
+@@ -7513,6 +7614,7 @@ async function createStunOverTurnClient({
    password
  }, {
    lifetime,
@@ -453,7 +480,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283
    portRange,
    interfaceAddresses,
    transport: transportType
-@@ -7525,6 +7618,7 @@ async function createStunOverTurnClient({
+@@ -7525,6 +7627,7 @@ async function createStunOverTurnClient({
      },
      {
        lifetime,
@@ -461,7 +488,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283
        portRange,
        interfaceAddresses,
        transport: transportType
-@@ -8171,7 +8265,8 @@ var Connection = class {
+@@ -8171,7 +8274,8 @@ var Connection = class {
            {
              portRange: this.options.portRange,
              interfaceAddresses: this.options.interfaceAddresses,
@@ -471,7 +498,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283
            }
          ).catch(async (e) => {
            if (this.options.turnTransport !== "tcp") {
-@@ -8184,7 +8279,8 @@ var Connection = class {
+@@ -8184,7 +8288,8 @@ var Connection = class {
                {
                  portRange: this.options.portRange,
                  interfaceAddresses: this.options.interfaceAddresses,
@@ -481,7 +508,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283
                }
              );
            } else {
-@@ -9390,23 +9486,59 @@ var compactNtp = (ntp) => {
+@@ -9390,23 +9495,59 @@ var compactNtp = (ntp) => {
    return bufferWriter([2, 2], [sec, msec]).readUInt32BE();
  };
  function parseIceServers(iceServers) {
@@ -554,7 +581,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283
    };
    log24("iceOptions", options);
    return options;
-@@ -12594,7 +12726,12 @@ var RTCSctpTransport = class _RTCSctpTransport {
+@@ -12594,7 +12735,12 @@ var RTCSctpTransport = class _RTCSctpTransport {
        const [channel, protocol, userData] = this.dataChannelQueue.shift();
        let streamId = channel.id;
        if (streamId === void 0) {
@@ -568,7 +595,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283
          while (Object.keys(this.dataChannels).includes(streamId.toString())) {
            streamId += 2;
          }
-@@ -12658,6 +12795,7 @@ var RTCSctpTransport = class _RTCSctpTransport {
+@@ -12658,6 +12804,7 @@ var RTCSctpTransport = class _RTCSctpTransport {
      }
      this.sctp.isServer = this.isServer;
      await this.sctp.start(remotePort);
@@ -576,7 +603,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283
    }
    async stop() {
      this.dtlsTransport.dataReceiver = () => {
-@@ -14874,8 +15012,9 @@ var SecureTransportManager = class {
+@@ -14874,8 +15021,9 @@ var SecureTransportManager = class {
      const existing = this.iceTransports.find(
        (transport) => transport.state !== "closed"
      );
@@ -587,7 +614,7 @@ index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..1d9f4fb82ff688fe5794be824b48d283
        forceTurn: this.config.iceTransportPolicy === "relay",
        portRange: this.config.icePortRange,
        interfaceAddresses: this.config.iceInterfaceAddresses,
-@@ -14885,7 +15024,8 @@ var SecureTransportManager = class {
+@@ -14885,7 +15033,8 @@ var SecureTransportManager = class {
        localPasswordPrefix: this.config.icePasswordPrefix,
        useIpv4: this.config.iceUseIpv4,
        useIpv6: this.config.iceUseIpv6,
