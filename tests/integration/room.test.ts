@@ -35,7 +35,9 @@ class FakeSignalingClient {
       initiator: this._subscribeCount === 1,
       connection_id: `conn-${this._subscribeCount}`,
       file_sharing: true,
-      file_size_limit: 16777216,
+      file_size_limit: 100 * 1024 * 1024,
+      file_size_limit_relay: 100 * 1024 * 1024,
+      file_size_limit_direct: 1024 * 1024 * 1024,
     };
   }
 

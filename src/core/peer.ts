@@ -121,10 +121,10 @@ export class PeerConnection {
         }
       }
 
-      if (!activePairId) return "direct";
+      if (!activePairId) return "relay"; // conservative fallback — apply relay limit on stats failure
 
       const pair = stats.get(activePairId) as any;
-      if (!pair) return "direct";
+      if (!pair) return "relay"; // conservative fallback
 
       const localCandidate = pair.localCandidateId
         ? (stats.get(pair.localCandidateId) as any)

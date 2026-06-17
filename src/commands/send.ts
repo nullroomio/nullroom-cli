@@ -3,7 +3,7 @@
  */
 
 import { createRoom } from "../core/room";
-import { DEFAULT_SERVER, FILE_SIZE_LIMIT } from "../utils/config";
+import { DEFAULT_SERVER, FILE_SIZE_LIMIT_DIRECT } from "../utils/config";
 import {
   showRoomHeader,
   outputJson,
@@ -33,8 +33,10 @@ export async function sendCommand(filePath: string, options: SendOptions): Promi
   const fileSize = file.size;
   const fileName = resolvedPath.split("/").pop() || "file";
 
-  if (fileSize > FILE_SIZE_LIMIT) {
-    logError(`File too large: ${formatSize(fileSize)}. Maximum is ${formatSize(FILE_SIZE_LIMIT)}.`);
+  // Upfront guard against the absolute ceiling (direct limit). The connection-aware
+  // limit (relay vs direct) is enforced by the sender once the path is confirmed.
+  if (fileSize > FILE_SIZE_LIMIT_DIRECT) {
+    logError(`File too large: ${formatSize(fileSize)}. Maximum is ${formatSize(FILE_SIZE_LIMIT_DIRECT)}.`);
     process.exit(1);
   }
 

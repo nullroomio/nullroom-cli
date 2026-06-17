@@ -22,7 +22,7 @@ Same cryptographic protocol as the [nullroom.io web app](https://github.com/null
 ```
 nr create              Create a secure room, output a 4-word code
 nr join <code>         Join a room via phrase or nr:// connection string
-nr send <file>         Encrypted file transfer (up to 16 MB)
+nr send <file>         Encrypted file transfer (up to 100 MB relay / 1 GB direct)
 nr receive <code>      Receive a file
 echo "data" | nr pipe  Pipe stdin/stdout through an encrypted tunnel
 ```

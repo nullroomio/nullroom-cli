@@ -101,8 +101,19 @@ export async function receiveCommand(code: string, options: ReceiveOptions): Pro
           fileReceived = true;
           resolveFile(info);
         },
-        outputDir
+        outputDir,
+        (errMsg) => {
+          if (json) {
+            outputJson({ type: "error", error: errMsg });
+          } else {
+            logError(errMsg);
+          }
+          rejectFile(new Error(errMsg));
+        }
       );
+
+      // Enforce the connection-appropriate size limit (relay vs direct).
+      receiver.setFileSizeLimit(session.getFileSizeLimit());
 
       // Route file data channel messages to receiver
       session.onFileData((data: ArrayBuffer) => {

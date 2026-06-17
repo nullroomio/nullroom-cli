@@ -14,8 +14,25 @@ export const ROOM_TTL_SECONDS = 900; // 15 minutes
 /** File transfer chunk size in bytes */
 export const CHUNK_SIZE = 65_536; // 64 KB
 
-/** Maximum file size (matches server default) */
-export const FILE_SIZE_LIMIT = 16_777_216; // 16 MiB
+/**
+ * Maximum P2P file transfer size for the relay path (protects TURN bandwidth).
+ * Override with NR_FILE_TRANSFER_SIZE_LIMIT_RELAY_BYTES.
+ */
+export const FILE_SIZE_LIMIT_RELAY =
+  Number(process.env.NR_FILE_TRANSFER_SIZE_LIMIT_RELAY_BYTES) || 100 * 1024 * 1024; // 100 MiB
+
+/**
+ * Maximum P2P file transfer size for direct connections (data never touches the server).
+ * Override with NR_FILE_TRANSFER_SIZE_LIMIT_DIRECT_BYTES.
+ */
+export const FILE_SIZE_LIMIT_DIRECT =
+  Number(process.env.NR_FILE_TRANSFER_SIZE_LIMIT_DIRECT_BYTES) || 1 * 1024 * 1024 * 1024; // 1 GiB
+
+/**
+ * Legacy alias — the conservative (relay) limit. Kept for back-compat; the active
+ * limit is chosen at runtime from the confirmed connection type.
+ */
+export const FILE_SIZE_LIMIT = FILE_SIZE_LIMIT_RELAY;
 
 /** WebRTC DataChannel backpressure thresholds */
 export const MAX_BUFFER = 16_777_216; // 16 MB — pause above this

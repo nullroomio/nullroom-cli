@@ -162,8 +162,9 @@ export class SignalingClient {
 
   /**
    * Request server authorization for a file transfer.
+   * Zero-trace: the gate only needs the size — no file name or connection topology.
    */
-  requestFileTransfer(metadata: { file_name: string; file_size: number }): void {
+  requestFileTransfer(metadata: { file_size: number }): void {
     this._perform("initiate_file_transfer", { metadata });
   }
 

@@ -44,7 +44,12 @@ export interface ChannelInitData {
   initiator: boolean;
   connection_id: string;
   file_sharing: boolean;
+  /** Active limit the server reports (relay, for back-compat). */
   file_size_limit: number;
+  /** Relay-path limit (protects TURN bandwidth). */
+  file_size_limit_relay?: number;
+  /** Direct-path limit (data never touches the server). */
+  file_size_limit_direct?: number;
 }
 
 export interface ChannelMessage {

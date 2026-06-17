@@ -21,7 +21,7 @@ import {
   decodeConnectionString,
   parseConnectionInput,
 } from "../utils/connection-string";
-import { CONTROL_PREFIX } from "../utils/config";
+import { CONTROL_PREFIX, FILE_SIZE_LIMIT_RELAY, FILE_SIZE_LIMIT_DIRECT } from "../utils/config";
 import type {
   ConnectionInfo,
   ChannelMessage,
@@ -50,6 +50,8 @@ export interface RoomSession {
   sendMessage: (msg: string) => Promise<void>;
   /** Send a file from path */
   sendFile: (path: string) => Promise<void>;
+  /** Active file-size limit (bytes) for the confirmed connection type. */
+  getFileSizeLimit: () => number;
   /** Send raw data (for pipe mode) */
   sendData: (data: ArrayBuffer) => Promise<void>;
   /** Register a handler for incoming messages */
@@ -220,6 +222,7 @@ async function setupSession(
 ): Promise<{
   sendMessage: (msg: string) => Promise<void>;
   sendFile: (path: string) => Promise<void>;
+  getFileSizeLimit: () => number;
   sendData: (data: ArrayBuffer) => Promise<void>;
   onMessage: (handler: (msg: string) => void) => void;
   onFileData: (handler: (data: ArrayBuffer) => void) => void;
@@ -237,6 +240,9 @@ async function setupSession(
   const controlMessageHandlers: ((msg: string) => boolean)[] = [];
   let localConnectionPath: ConnectionPath = "direct";
   let emittedConnectionPath: ConnectionPath | null = null;
+  // File-size limits per connection type (overridden by server init below).
+  let fileSizeLimitRelay = FILE_SIZE_LIMIT_RELAY;
+  let fileSizeLimitDirect = FILE_SIZE_LIMIT_DIRECT;
   let topologyDiscoveryLogged = false;
   let connectionPathAdvertised = false;
   let connectionResolve: (() => void) | null = null;
@@ -247,6 +253,14 @@ async function setupSession(
     if (emittedConnectionPath === path) return;
     emittedConnectionPath = path;
     onConnectionPath?.(path);
+  };
+
+  // Active limit for the confirmed connection type. Conservative by default: use the
+  // larger direct limit only once the path is confirmed direct; relay/blocked/unknown
+  // all fall back to the stricter relay limit.
+  const effectiveFileSizeLimit = (): number => {
+    const path = emittedConnectionPath ?? localConnectionPath;
+    return path === "direct" ? fileSizeLimitDirect : fileSizeLimitRelay;
   };
 
   async function sendControlMessage(payload: Record<string, unknown>): Promise<void> {
@@ -300,6 +314,10 @@ async function setupSession(
   // 2. Subscribe to room
   const initData = await signaling.subscribe(roomId);
   const isInitiator = initData.initiator;
+
+  // Adopt server-advertised limits when present (falls back to the local defaults).
+  fileSizeLimitRelay = Number(initData.file_size_limit_relay) || fileSizeLimitRelay;
+  fileSizeLimitDirect = Number(initData.file_size_limit_direct) || fileSizeLimitDirect;
 
   // 3. Create peer connection
   const peer = new PeerConnection({
@@ -455,6 +473,7 @@ async function setupSession(
       (name, percent) => callbacks.onProgress?.(`${name}: ${percent}%`),
       (errMsg) => callbacks.onError?.(new Error(errMsg))
     );
+    sender.setFileSizeLimit(effectiveFileSizeLimit());
     await sender.sendFromPath(path);
   }
 
@@ -466,7 +485,12 @@ async function setupSession(
       () => {},
       (errMsg) => callbacks.onError?.(new Error(errMsg))
     );
+    sender.setFileSizeLimit(effectiveFileSizeLimit());
     await sender.sendFromBuffer(data);
+  }
+
+  function getFileSizeLimit(): number {
+    return effectiveFileSizeLimit();
   }
 
   function onMessage(handler: (msg: string) => void): void {
@@ -497,6 +521,7 @@ async function setupSession(
   return {
     sendMessage,
     sendFile,
+    getFileSizeLimit,
     sendData,
     onMessage,
     onFileData,

@@ -12,7 +12,6 @@ import { CHUNK_SIZE, FILE_SIZE_LIMIT, MAX_BUFFER } from "../utils/config";
 import type { FileMetadata, FileTransferComplete } from "../types";
 
 const MAX_FILE_NAME_LENGTH = 255;
-const MAX_TOTAL_CHUNKS = Math.ceil(FILE_SIZE_LIMIT / CHUNK_SIZE);
 const SAFE_MIME_FALLBACK = "application/octet-stream";
 const DISPLAYABLE_MIME_TYPES = new Set([
   "image/png",
@@ -21,6 +20,14 @@ const DISPLAYABLE_MIME_TYPES = new Set([
   "application/pdf",
   "text/plain",
 ]);
+
+/** Human-readable label for a byte limit (GB when a whole number of GiB, else MB). */
+function fileSizeLimitLabel(bytes: number): string {
+  const gibibytes = bytes / (1024 * 1024 * 1024);
+  if (gibibytes >= 1 && Number.isInteger(gibibytes)) return `${gibibytes} GB`;
+  const mebibytes = bytes / (1024 * 1024);
+  return Number.isInteger(mebibytes) ? `${mebibytes} MB` : `${mebibytes.toFixed(1)} MB`;
+}
 
 function normalizeFileName(value: unknown): string {
   const normalized = String(value ?? "")
@@ -32,9 +39,9 @@ function normalizeFileName(value: unknown): string {
   return (normalized || "download").slice(0, MAX_FILE_NAME_LENGTH);
 }
 
-function normalizeFileSize(value: unknown): number {
+function normalizeFileSize(value: unknown, limit: number): number {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > FILE_SIZE_LIMIT) return 0;
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > limit) return 0;
   return Math.floor(parsed);
 }
 
@@ -45,7 +52,7 @@ function normalizeMimeType(value: unknown): string {
 
 function normalizeTotalChunks(value: unknown): number {
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > MAX_TOTAL_CHUNKS) return 0;
+  if (!Number.isInteger(parsed) || parsed <= 0) return 0;
   return parsed;
 }
 
@@ -67,6 +74,7 @@ export class FileTransferSender {
   private encryptFn: (buffer: ArrayBuffer) => Promise<ArrayBuffer>;
   private onProgress: (name: string, percent: number) => void;
   private onError: (message: string) => void;
+  private fileSizeLimit: number = FILE_SIZE_LIMIT;
   private _sending: boolean = false;
 
   constructor(
@@ -79,6 +87,12 @@ export class FileTransferSender {
     this.encryptFn = encryptFn;
     this.onProgress = onProgress;
     this.onError = onError;
+  }
+
+  /** Set the active size limit for the confirmed connection type (relay vs direct). */
+  setFileSizeLimit(bytes: number): void {
+    const parsed = Number(bytes);
+    if (Number.isFinite(parsed) && parsed > 0) this.fileSizeLimit = parsed;
   }
 
   /**
@@ -95,9 +109,9 @@ export class FileTransferSender {
     const name = filePath.split("/").pop() || "file";
     const mimeType = file.type || "application/octet-stream";
 
-    if (size > FILE_SIZE_LIMIT) {
+    if (size > this.fileSizeLimit) {
       this.onError(
-        `File too large: ${(size / (1024 * 1024)).toFixed(1)} MB. Maximum is ${FILE_SIZE_LIMIT / (1024 * 1024)} MB.`
+        `File too large: ${(size / (1024 * 1024)).toFixed(1)} MB. Maximum is ${fileSizeLimitLabel(this.fileSizeLimit)}.`
       );
       return;
     }
@@ -180,6 +194,14 @@ export class FileTransferSender {
     }
 
     const size = buffer.byteLength;
+
+    if (size > this.fileSizeLimit) {
+      this.onError(
+        `Data too large: ${(size / (1024 * 1024)).toFixed(1)} MB. Maximum is ${fileSizeLimitLabel(this.fileSizeLimit)}.`
+      );
+      return;
+    }
+
     this._sending = true;
     const transferId = crypto.randomUUID();
     const totalChunks = Math.ceil(size / CHUNK_SIZE);
@@ -233,7 +255,9 @@ export class FileTransferReceiver {
   private decryptFn: (buffer: ArrayBuffer) => Promise<ArrayBuffer>;
   private onProgress: (name: string, percent: number) => void;
   private onComplete: (info: FileTransferComplete) => void;
+  private onError: (message: string) => void;
   private outputDir: string;
+  private fileSizeLimit: number = FILE_SIZE_LIMIT;
 
   private _meta: {
     transferId: string;
@@ -245,19 +269,29 @@ export class FileTransferReceiver {
   private _chunks: (ArrayBuffer | null)[] = [];
   private _nextIndex: number = 0;
   private _received: number = 0;
+  private _receivedBytes: number = 0;
   private _pendingDecrypts: number = 0;
   private _endReceived: boolean = false;
+  private _aborted: boolean = false;
 
   constructor(
     decryptFn: (buffer: ArrayBuffer) => Promise<ArrayBuffer>,
     onProgress: (name: string, percent: number) => void,
     onComplete: (info: FileTransferComplete) => void,
-    outputDir: string = "."
+    outputDir: string = ".",
+    onError?: (message: string) => void
   ) {
     this.decryptFn = decryptFn;
     this.onProgress = onProgress;
     this.onComplete = onComplete;
     this.outputDir = outputDir;
+    this.onError = onError || (() => {});
+  }
+
+  /** Set the active size limit for the confirmed connection type (relay vs direct). */
+  setFileSizeLimit(bytes: number): void {
+    const parsed = Number(bytes);
+    if (Number.isFinite(parsed) && parsed > 0) this.fileSizeLimit = parsed;
   }
 
   private _reset(): void {
@@ -265,8 +299,10 @@ export class FileTransferReceiver {
     this._chunks = [];
     this._nextIndex = 0;
     this._received = 0;
+    this._receivedBytes = 0;
     this._pendingDecrypts = 0;
     this._endReceived = false;
+    this._aborted = false;
   }
 
   /**
@@ -289,10 +325,19 @@ export class FileTransferReceiver {
         return true;
       }
 
+      // Refuse a transfer whose declared chunk count alone would exceed the limit.
+      // (The cumulative-bytes guard in handleChunk also catches peers that lie about
+      //  chunk sizes/count — it bounds actual memory, not just the claim.)
+      if (totalChunks * CHUNK_SIZE > this.fileSizeLimit) {
+        this.onError(`Incoming file exceeds the ${fileSizeLimitLabel(this.fileSizeLimit)} limit.`);
+        this._reset();
+        return true;
+      }
+
       this._meta = {
         transferId: String(msg.transferId || ""),
         name: normalizeFileName(msg.name),
-        size: normalizeFileSize(msg.size),
+        size: normalizeFileSize(msg.size, this.fileSizeLimit),
         totalChunks,
         mimeType: normalizeMimeType(msg.mimeType),
       };
@@ -311,7 +356,7 @@ export class FileTransferReceiver {
    * Handle an incoming binary chunk from the file data channel.
    */
   async handleChunk(data: ArrayBuffer): Promise<void> {
-    if (!this._meta) return;
+    if (this._aborted || !this._meta) return;
 
     const myIndex = this._nextIndex++;
     if (myIndex >= this._meta.totalChunks) return;
@@ -319,6 +364,15 @@ export class FileTransferReceiver {
 
     try {
       const decrypted = await this.decryptFn(data);
+
+      // Defense-in-depth: a peer can lie about `size`/`totalChunks` or send oversized
+      // frames, so cap on bytes ACTUALLY received and abort if the transfer overflows.
+      this._receivedBytes += decrypted.byteLength;
+      if (this._receivedBytes > this.fileSizeLimit) {
+        this._abortOversize();
+        return;
+      }
+
       this._chunks[myIndex] = decrypted;
       this._received++;
 
@@ -328,8 +382,20 @@ export class FileTransferReceiver {
       // Chunk decrypt error - slot remains null
     } finally {
       this._pendingDecrypts--;
-      this._tryAssemble();
+      if (this._aborted) {
+        if (this._pendingDecrypts <= 0) this._reset();
+      } else {
+        this._tryAssemble();
+      }
     }
+  }
+
+  /** Abort an in-progress transfer that exceeded the size limit. */
+  private _abortOversize(): void {
+    if (this._aborted) return;
+    this._aborted = true;
+    this._chunks = []; // free buffered chunks immediately
+    this.onError(`Incoming file exceeds the ${fileSizeLimitLabel(this.fileSizeLimit)} limit.`);
   }
 
   private _tryAssemble(): void {
