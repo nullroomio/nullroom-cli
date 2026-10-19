@@ -7,7 +7,7 @@
  */
 
 import type { ConnectionInfo } from "../types";
-import { DEFAULT_SERVER } from "./config";
+import { normalizeServerUrl } from "./config";
 
 /**
  * Encode room connection info into a compact connection string.
@@ -46,8 +46,8 @@ export function decodeConnectionString(str: string): ConnectionInfo {
   const roomId = payload.slice(0, colonIndex);
   const key = payload.slice(colonIndex + 1);
 
-  // Reconstruct server URL (assume https)
-  const server = `https://${host}`;
+  // Reconstruct server URL (assume https); old strings may still say www
+  const server = normalizeServerUrl(`https://${host}`);
 
   return { roomId, key, server };
 }

@@ -11,6 +11,9 @@ nr
 nr-linux
 nr-mac
 nr.exe
+nr-*-x64
+nr-*-arm64
+nr-*.exe
 
 # code coverage
 coverage

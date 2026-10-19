@@ -21,7 +21,7 @@ import {
   decodeConnectionString,
   parseConnectionInput,
 } from "../utils/connection-string";
-import { CONTROL_PREFIX, FILE_SIZE_LIMIT_RELAY, FILE_SIZE_LIMIT_DIRECT } from "../utils/config";
+import { CONTROL_PREFIX, FILE_SIZE_LIMIT_RELAY, FILE_SIZE_LIMIT_DIRECT, normalizeServerUrl } from "../utils/config";
 import type {
   ConnectionInfo,
   ChannelMessage,
@@ -156,7 +156,8 @@ export async function joinRoom(
     const url = new URL(roomUrl);
     const roomId = url.pathname.split("/").pop()!;
     const key = url.hash.slice(1); // Remove the # prefix
-    const server = `${url.protocol}//${url.host}`;
+    // Rooms created by older builds may still point at www
+    const server = normalizeServerUrl(`${url.protocol}//${url.host}`);
 
     connectionInfo = { roomId: roomId, key, server };
   } else {

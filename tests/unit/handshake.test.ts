@@ -91,7 +91,7 @@ describe("deriveKey", () => {
 describe("encryptUrl / decryptUrl", () => {
   test("round-trips a URL through encrypt and decrypt", async () => {
     const phrase = "test-phrase-round-trip";
-    const url = "https://www.nullroom.io/rooms/abc-123#secret-key";
+    const url = "https://nullroom.io/rooms/abc-123#secret-key";
 
     const encrypted = await encryptUrl(url, phrase);
     const decrypted = await decryptUrl(encrypted, phrase);
@@ -120,7 +120,7 @@ describe("encryptUrl / decryptUrl", () => {
 
   test("handles long URLs", async () => {
     const phrase = "test-long-url-works";
-    const url = "https://www.nullroom.io/rooms/550e8400-e29b-41d4-a716-446655440000#" + "a".repeat(200);
+    const url = "https://nullroom.io/rooms/550e8400-e29b-41d4-a716-446655440000#" + "a".repeat(200);
     const decrypted = await decryptUrl(await encryptUrl(url, phrase), phrase);
     expect(decrypted).toBe(url);
   });
@@ -137,7 +137,7 @@ describe("createHandshake", () => {
   });
 
   test("encrypted blob can be decrypted with the returned phrase", async () => {
-    const url = "https://www.nullroom.io/rooms/test-id#my-key";
+    const url = "https://nullroom.io/rooms/test-id#my-key";
     const { phrase, encryptedBlob } = await createHandshake(url);
     const decrypted = await decryptUrl(encryptedBlob, phrase);
     expect(decrypted).toBe(url);

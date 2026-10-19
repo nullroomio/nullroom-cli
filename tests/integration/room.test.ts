@@ -17,9 +17,11 @@ class FakeSignalingClient {
   subscribed = false;
   sentSignals: SignalMessage[] = [];
   roomId = "";
+  serverUrl: string;
   private _subscribeCount = 0;
 
-  constructor(_serverUrl: string) {
+  constructor(serverUrl: string) {
+    this.serverUrl = serverUrl;
     signalingInstances.push(this);
   }
 
@@ -551,6 +553,38 @@ describe("joinRoom", () => {
 
     expect(session.connectionInfo.roomId).toBe("phrase-room-id");
     expect(session.connectionInfo.key).toBe(keyStr);
+
+    session.destroy();
+  });
+
+  test("phrase join rewrites a legacy www room URL to the apex host", async () => {
+    const { encryptUrl, computeIdentifier } = await import("../../src/core/handshake");
+    const keyStr = await generateKey();
+    const roomUrl = "https://www.nullroom.io/rooms/legacy-room-id#" + keyStr;
+    const phrase = "alpha-bravo-charlie-delta";
+    const blob = await encryptUrl(roomUrl, phrase);
+    const requested: string[] = [];
+
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      requested.push(url);
+      if (url.includes("/handshakes/") && (!init?.method || init.method === "GET")) {
+        return Response.json({ blob });
+      }
+      if (url.match(/\/rooms\//) && (!init?.method || init.method === "GET")) {
+        return new Response('<div data-room-turn-servers-value="[]"></div>', {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+
+    const session = await joinRoom(phrase, "https://nullroom.io", {});
+
+    expect(session.connectionInfo.server).toBe("https://nullroom.io");
+    expect(requested).toContain("https://nullroom.io/rooms/legacy-room-id");
+    expect(requested.some((u) => u.includes("www."))).toBe(false);
+    expect(signalingInstances[0]!.serverUrl).toBe("https://nullroom.io");
 
     session.destroy();
   });

@@ -15,7 +15,7 @@ describe("encodeConnectionString / decodeConnectionString", () => {
     const info: ConnectionInfo = {
       roomId: "abc-123-def-456",
       key: "my-secret-key-here",
-      server: "https://www.nullroom.io",
+      server: "https://nullroom.io",
     };
     const encoded = encodeConnectionString(info);
     const decoded = decodeConnectionString(encoded);
@@ -38,17 +38,17 @@ describe("encodeConnectionString / decodeConnectionString", () => {
     const info: ConnectionInfo = {
       roomId: "room-id",
       key: "key",
-      server: "https://www.nullroom.io",
+      server: "https://nullroom.io",
     };
     const encoded = encodeConnectionString(info);
-    expect(encoded).toEndWith("@www.nullroom.io");
+    expect(encoded).toEndWith("@nullroom.io");
   });
 
   test("round-trips with special characters in key", () => {
     const info: ConnectionInfo = {
       roomId: "550e8400-e29b-41d4-a716-446655440000",
       key: "aB3+/=zZyY0123456789",
-      server: "https://www.nullroom.io",
+      server: "https://nullroom.io",
     };
     const decoded = decodeConnectionString(encodeConnectionString(info));
     expect(decoded.roomId).toBe(info.roomId);
@@ -63,6 +63,14 @@ describe("encodeConnectionString / decodeConnectionString", () => {
     };
     const decoded = decodeConnectionString(encodeConnectionString(info));
     expect(decoded.server).toBe("https://custom.server.dev");
+  });
+
+  test("decodes a legacy @www.nullroom.io string to the apex host", () => {
+    const payload = Buffer.from("legacy-room:legacy-key").toString("base64url");
+    const decoded = decodeConnectionString(`nr://${payload}@www.nullroom.io`);
+    expect(decoded.roomId).toBe("legacy-room");
+    expect(decoded.key).toBe("legacy-key");
+    expect(decoded.server).toBe("https://nullroom.io");
   });
 
   test("throws on missing @host", () => {

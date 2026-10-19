@@ -1,6 +1,6 @@
 {
   "name": "nullroom-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Post-quantum encrypted P2P communication from the terminal",
   "module": "src/index.ts",
   "type": "module",

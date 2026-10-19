@@ -2,8 +2,30 @@
  * Configuration constants for nullroom-cli
  */
 
+/** Legacy host, now 301-redirected to the apex (breaks POSTs and WebSockets) */
+const LEGACY_HOST = "www.nullroom.io";
+const CANONICAL_HOST = "nullroom.io";
+
+/**
+ * Normalize a server URL to `protocol//host` with no path or trailing slash.
+ * Rewrites the legacy www.nullroom.io host to the apex; other hosts are left alone.
+ */
+export function normalizeServerUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid server URL "${url}": include the scheme, e.g. https://nullroom.io`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error(`Invalid server URL "${url}": scheme must be http or https`);
+  }
+  const host = parsed.host === LEGACY_HOST ? CANONICAL_HOST : parsed.host;
+  return `${parsed.protocol}//${host}`;
+}
+
 /** Default server URL (configurable via NR_SERVER env or --server flag) */
-export const DEFAULT_SERVER = process.env.NR_SERVER || "https://www.nullroom.io";
+export const DEFAULT_SERVER = normalizeServerUrl(process.env.NR_SERVER || "https://nullroom.io");
 
 /** WebSocket path for ActionCable */
 export const CABLE_PATH = "/cable";
@@ -62,4 +84,4 @@ export const CONTROL_PREFIX = "\x01";
 export const CLI_NAME = "nr";
 
 /** CLI version */
-export const CLI_VERSION = "0.1.0";
+export const CLI_VERSION = "0.1.1";
