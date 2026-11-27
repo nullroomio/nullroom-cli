@@ -14,7 +14,7 @@ Fully interoperable with the web app — a CLI user can connect to a browser use
 
 ## Features
 
-Same cryptographic protocol as the [nullroom.io web app](https://github.com/nullroomio/nullroom):
+Same cryptographic protocol as the [nullroom.io web app](https://github.com/nullroomio/nullroom.io):
 
 - **End-to-end encrypted** — AES-GCM-256 + ML-KEM-768 (post-quantum) hybrid key
 - **P2P-first transport** — direct WebRTC when available, encrypted Coturn relay fallback (`turns:` on 443/TCP) when NAT/firewall constraints require it
