@@ -1,6 +1,10 @@
-# nullroom-cli
+<div align="center">
+  <img src="assets/logo.png" alt="nullroom logo" width="96" height="96" />
 
-[![Test](https://github.com/nullroomio/nullroom-cli/actions/workflows/test.yml/badge.svg)](https://github.com/nullroomio/nullroom-cli/actions/workflows/test.yml)
+  # nullroom-cli
+
+  [![Test](https://github.com/nullroomio/nullroom-cli/actions/workflows/test.yml/badge.svg)](https://github.com/nullroomio/nullroom-cli/actions/workflows/test.yml)
+</div>
 
 Post-quantum encrypted P2P communication from the terminal. CLI client for [nullroom.io](https://nullroom.io).
 
